@@ -1,0 +1,40 @@
+{
+  "id": "barbearias",
+  "nome": "Barbearias",
+  "termo_busca": "Barbearia",
+  "template": "escuro",
+  "cor_padrao": "#b45309",
+  "icone": "✂",
+  "roteiro": "Tom confiante, descontraído e masculino moderno. Destaque corte, barba, ambiente e agendamento fácil pelo WhatsApp. Não invente preços, nomes de barbeiros ou serviços muito específicos.",
+  "textos_padrao": {
+    "slogan": "Estilo e cuidado em cada detalhe",
+    "subtitulo": "Corte e barba de respeito em {regiao}.",
+    "sobre": "Na {nome} você é atendido com atenção, num ambiente bom de estar. Corte na régua, barba alinhada e aquele cuidado que faz diferença no seu visual.",
+    "cta": "Agendar horário"
+  },
+  "servicos_padrao": [
+    {
+      "titulo": "Corte",
+      "descricao": "Do clássico ao moderno, do jeito que você pedir."
+    },
+    {
+      "titulo": "Barba",
+      "descricao": "Modelagem, alinhamento e acabamento caprichado."
+    },
+    {
+      "titulo": "Corte + barba",
+      "descricao": "O combo completo para sair renovado."
+    },
+    {
+      "titulo": "Sobrancelha e acabamentos",
+      "descricao": "Os detalhes que completam o visual."
+    }
+  ],
+  "diferenciais_padrao": [
+    "Atendimento com hora marcada",
+    "Profissionais experientes",
+    "Ambiente confortável"
+  ],
+  "mensagem_whatsapp": "Olá, {nome}! Tudo bem? Meu nome é {meu_nome}, faço sites para negócios aqui da região. Vi vocês no Google Maps e montei uma prévia de como poderia ficar o site de vocês: {link}\n\nÉ só uma demonstração, consigo deixar ainda melhor e do jeito de vocês. Posso te explicar como funciona?",
+  "imagens": []
+}

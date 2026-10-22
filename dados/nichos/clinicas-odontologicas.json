@@ -1,0 +1,40 @@
+{
+  "id": "clinicas-odontologicas",
+  "nome": "Clínicas odontológicas",
+  "termo_busca": "Clínica odontológica",
+  "template": "padrao",
+  "cor_padrao": "#0891b2",
+  "icone": "🦷",
+  "roteiro": "Tom profissional, calmo e acolhedor. Transmita confiança e cuidado. Serviços = tratamentos comuns (limpeza, clareamento, ortodontia, implantes) de forma genérica. Não faça promessas de resultado, não invente nomes de dentistas, CRO, preços ou convênios. Respeite as regras de publicidade odontológica (sem 'o melhor', sem antes/depois).",
+  "textos_padrao": {
+    "slogan": "Cuidado completo para o seu sorriso",
+    "subtitulo": "Atendimento odontológico com atenção e conforto em {regiao}.",
+    "sobre": "A {nome} oferece atendimento odontológico com foco no seu bem-estar, explicando cada etapa do tratamento para que você se sinta seguro do início ao fim.",
+    "cta": "Agendar avaliação"
+  },
+  "servicos_padrao": [
+    {
+      "titulo": "Limpeza e prevenção",
+      "descricao": "Consultas de rotina para manter a saúde da boca em dia."
+    },
+    {
+      "titulo": "Clareamento",
+      "descricao": "Opções para deixar o sorriso mais claro com segurança."
+    },
+    {
+      "titulo": "Ortodontia",
+      "descricao": "Tratamentos para alinhar os dentes e melhorar a mordida."
+    },
+    {
+      "titulo": "Implantes e próteses",
+      "descricao": "Soluções para recuperar a função e a estética do sorriso."
+    }
+  ],
+  "diferenciais_padrao": [
+    "Atendimento humanizado",
+    "Ambiente confortável",
+    "Agendamento fácil"
+  ],
+  "mensagem_whatsapp": "Olá, {nome}! Tudo bem? Meu nome é {meu_nome}, faço sites para negócios aqui da região. Vi vocês no Google Maps e montei uma prévia de como poderia ficar o site de vocês: {link}\n\nÉ só uma demonstração, consigo deixar ainda melhor e do jeito de vocês. Posso te explicar como funciona?",
+  "imagens": []
+}

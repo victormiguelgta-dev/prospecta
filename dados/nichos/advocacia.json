@@ -1,0 +1,40 @@
+{
+  "id": "advocacia",
+  "nome": "Escritórios de advocacia",
+  "termo_busca": "Escritório de advocacia",
+  "template": "padrao",
+  "cor_padrao": "#7c2d12",
+  "icone": "⚖",
+  "roteiro": "Tom sóbrio, claro e confiável. Siga o Código de Ética da OAB: nada de promessas de resultado, captação agressiva, preços ou frases como 'ganhe sua causa'. Serviços = áreas de atuação genéricas compatíveis com a categoria. Não invente nomes de advogados, número de OAB ou casos.",
+  "textos_padrao": {
+    "slogan": "Orientação jurídica clara e próxima de você",
+    "subtitulo": "Atendimento jurídico em {regiao}.",
+    "sobre": "O escritório {nome} atua com ética e atenção a cada cliente, explicando seus direitos com clareza e acompanhando cada etapa do seu caso.",
+    "cta": "Agendar uma conversa"
+  },
+  "servicos_padrao": [
+    {
+      "titulo": "Direito civil",
+      "descricao": "Contratos, cobranças, indenizações e questões do dia a dia."
+    },
+    {
+      "titulo": "Direito de família",
+      "descricao": "Divórcio, pensão, guarda e inventário."
+    },
+    {
+      "titulo": "Direito trabalhista",
+      "descricao": "Orientação para empregados e empregadores."
+    },
+    {
+      "titulo": "Direito do consumidor",
+      "descricao": "Defesa em problemas com compras e serviços."
+    }
+  ],
+  "diferenciais_padrao": [
+    "Atendimento ético e transparente",
+    "Comunicação clara",
+    "Acompanhamento próximo"
+  ],
+  "mensagem_whatsapp": "Olá, {nome}! Tudo bem? Meu nome é {meu_nome}, faço sites para negócios aqui da região. Vi vocês no Google Maps e montei uma prévia de como poderia ficar o site de vocês: {link}\n\nÉ só uma demonstração, consigo deixar ainda melhor e do jeito de vocês. Posso te explicar como funciona?",
+  "imagens": []
+}

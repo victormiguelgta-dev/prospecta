@@ -1,0 +1,40 @@
+{
+  "id": "pizzarias",
+  "nome": "Pizzarias",
+  "termo_busca": "Pizzaria",
+  "template": "escuro",
+  "cor_padrao": "#c2410c",
+  "icone": "🍕",
+  "roteiro": "Tom apetitoso, direto e animado. Destaque sabor, forno, ingredientes e entrega. A chamada principal é pedir pelo WhatsApp. Serviços = formas de pedir/consumir (delivery, retirada, salão, rodízio) e não sabores específicos inventados. Não invente preços, promoções, tempo de entrega ou sabores exclusivos.",
+  "textos_padrao": {
+    "slogan": "Pizza quentinha do jeito que você gosta",
+    "subtitulo": "Peça agora e receba em casa em {regiao}.",
+    "sobre": "Na {nome}, cada pizza é preparada com cuidado, massa no ponto e ingredientes selecionados. Seja para a noite em família ou para reunir os amigos, a gente leva o sabor até você.",
+    "cta": "Pedir pelo WhatsApp"
+  },
+  "servicos_padrao": [
+    {
+      "titulo": "Delivery",
+      "descricao": "Sua pizza chega quentinha na sua porta."
+    },
+    {
+      "titulo": "Retirada no balcão",
+      "descricao": "Peça antes e só passe para buscar."
+    },
+    {
+      "titulo": "Pizzas especiais",
+      "descricao": "Sabores tradicionais e combinações da casa."
+    },
+    {
+      "titulo": "Bebidas e sobremesas",
+      "descricao": "Complete o pedido do jeito que preferir."
+    }
+  ],
+  "diferenciais_padrao": [
+    "Massa no ponto certo",
+    "Ingredientes selecionados",
+    "Pedido fácil pelo WhatsApp"
+  ],
+  "mensagem_whatsapp": "Olá, {nome}! Tudo bem? Meu nome é {meu_nome}, faço sites para negócios aqui da região. Vi vocês no Google Maps e montei uma prévia de como poderia ficar o site de vocês: {link}\n\nÉ só uma demonstração, consigo deixar ainda melhor e do jeito de vocês. Posso te explicar como funciona?",
+  "imagens": []
+}

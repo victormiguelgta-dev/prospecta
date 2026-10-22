@@ -1,0 +1,515 @@
+{# tema: escuro #}
+{#
+  Template universal de ACADEMIA.
+  Usa só o objeto `s` (lista de variáveis no README). Regras:
+  - cores: sempre das variáveis s.cor.* (vêm da logo do cliente);
+  - slides do topo: primeiro fotos reais (Maps/Instagram), depois s.imagens_pessoas;
+  - "Por dentro": SÓ fotos reais (s.galeria);
+  - nenhum número inventado: contadores usam nota, avaliações, horas e modalidades reais;
+  - planos sem preço: o botão pergunta o valor no WhatsApp.
+#}
+{%- set slides = [] -%}
+{%- if s.foto_real and s.foto_principal %}{% set _ = slides.append(s.foto_principal) %}{% endif -%}
+{%- for f in (s.galeria or [])[:2] %}{% set _ = slides.append(f) %}{% endfor -%}
+{%- for f in (s.imagens_pessoas or [])[:4] %}{% set _ = slides.append(f) %}{% endfor -%}
+{%- if not slides and s.foto_principal %}{% set _ = slides.append(s.foto_principal) %}{% endif -%}
+{%- set foto_destaque = (s.imagens_pessoas or [])[0] if s.imagens_pessoas else (s.imagem_detalhe or (s.galeria[0] if s.galeria else none)) -%}
+{%- set fundo_chamada = (s.imagens_pessoas or [])[-1] if (s.imagens_pessoas or [])|length > 1 else (s.imagem_textura or s.foto_principal) -%}
+{%- set whats = s.link_whatsapp or '' -%}
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{{ s.nome }} | Academia em {{ s.regiao }}</title>
+<meta name="description" content="{{ s.subtitulo }}">
+<meta property="og:title" content="{{ s.nome }}">
+<meta property="og:description" content="{{ s.slogan }}">
+{% if s.url_site %}<meta property="og:url" content="{{ s.url_site }}">{% endif %}
+{% if slides %}<meta property="og:image" content="{{ s.url_site }}{{ slides[0] }}">{% endif %}
+<meta name="theme-color" content="{{ s.cor.fundo }}">
+<script>document.documentElement.classList.add("js")</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800;900&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --destaque: {{ s.cor.destaque }};
+    --sobre-destaque: {{ s.cor.sobre_destaque }};
+    --fundo: {{ s.cor.fundo }};
+    --superficie: {{ s.cor.superficie }};
+    --texto: {{ s.cor.texto }};
+    --suave: {{ s.cor.texto_suave }};
+    --linha: color-mix(in srgb, var(--texto) 13%, transparent);
+    --titulo: "Big Shoulders Display", Impact, "Arial Narrow", sans-serif;
+    --corpo: "Barlow", system-ui, sans-serif;
+    --largura: 1200px;
+    --faixa-h: 34px;
+    --menu-h: 68px;
+    --topo-h: calc(var(--faixa-h) + var(--menu-h));
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: var(--topo-h); }
+  body { margin: 0; background: var(--fundo); color: var(--texto); font: 400 1.0625rem/1.6 var(--corpo); -webkit-font-smoothing: antialiased; }
+  img { max-width: 100%; display: block; }
+  a { color: inherit; }
+  h1, h2, h3 { font-family: var(--titulo); font-weight: 900; line-height: .9; margin: 0; text-transform: uppercase; letter-spacing: .005em; }
+  p { margin: 0; }
+  .contem { width: min(100% - 32px, var(--largura)); margin-inline: auto; }
+  :focus-visible { outline: 3px solid var(--destaque); outline-offset: 3px; }
+  section { padding-block: clamp(72px, 10vw, 120px); }
+  .titulo-secao { font-size: clamp(2.8rem, 8vw, 5.2rem); }
+  .intro-secao { color: var(--suave); max-width: 52ch; margin-top: 16px; font-size: 1.125rem; }
+
+  /* Botões */
+  .botao { display: inline-flex; align-items: center; justify-content: center; gap: 10px; padding: 16px 26px; border-radius: 999px; font-weight: 700; text-decoration: none; font-size: 1.0625rem; transition: transform .15s ease, filter .15s ease, background-color .15s ease; }
+  .botao:hover { transform: translateY(-2px); filter: brightness(1.08); }
+  .botao svg { width: 20px; height: 20px; flex: none; }
+  .botao-cheio { background: var(--destaque); color: var(--sobre-destaque); }
+  .botao-vazado { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--texto) 70%, transparent); color: var(--texto); }
+  .botao-vazado:hover { background: color-mix(in srgb, var(--texto) 10%, transparent); }
+
+  /* Cabeçalho fixo */
+  .topo { position: fixed; inset: 0 0 auto; z-index: 20; height: var(--topo-h); transition: background-color .25s ease, box-shadow .25s ease; }
+  .topo.rolou { background: color-mix(in srgb, var(--fundo) 92%, transparent); backdrop-filter: blur(10px); box-shadow: 0 1px 0 var(--linha); }
+  .topo .contem { height: var(--menu-h); display: flex; align-items: center; gap: 24px; }
+  .faixa-previa { height: var(--faixa-h); display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; background: var(--destaque); color: var(--sobre-destaque); font-size: .8125rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .faixa-previa a { color: inherit; font-weight: 800; }
+  .marca { display: flex; align-items: center; gap: 12px; text-decoration: none; font-family: var(--titulo); font-weight: 800; font-size: 1.5rem; text-transform: uppercase; line-height: 1; margin-right: auto; }
+  .marca img, .marca .iniciais { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex: none; }
+  .iniciais { display: grid; place-items: center; background: var(--destaque); color: var(--sobre-destaque); font-size: 1.1rem; }
+  .menu { display: flex; gap: 26px; }
+  .menu a { text-decoration: none; font-weight: 600; font-size: .9375rem; color: color-mix(in srgb, var(--texto) 85%, transparent); }
+  .menu a:hover { color: var(--destaque); }
+  .topo .botao { padding: 10px 20px; font-size: .9375rem; }
+  .abrir-menu { display: none; background: none; border: 0; color: var(--texto); padding: 8px; cursor: pointer; }
+  .abrir-menu svg { width: 28px; height: 28px; }
+
+  /* Hero com slides */
+  .hero { position: relative; min-height: 100svh; display: flex; align-items: flex-end; isolation: isolate; overflow: hidden; padding: calc(var(--topo-h) + 40px) 0 0; }
+  .slides { position: absolute; inset: 0; z-index: -2; background: radial-gradient(120% 90% at 80% 10%, color-mix(in srgb, var(--destaque) 45%, var(--fundo)) 0%, var(--fundo) 65%); }
+  .slide { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transform: scale(1.08); transition: opacity 1.2s ease, transform 7s linear; }
+  .slide.ativo { opacity: 1; transform: scale(1); }
+  .hero::before { content: ""; position: absolute; inset: 0; z-index: -1; background:
+      linear-gradient(90deg, color-mix(in srgb, var(--fundo) 88%, transparent) 0%, color-mix(in srgb, var(--fundo) 35%, transparent) 60%, transparent 100%),
+      linear-gradient(0deg, var(--fundo) 0%, transparent 45%); }
+  .hero-texto { padding-bottom: 56px; }
+  .local { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--suave); margin-bottom: 18px; }
+  .local svg { width: 18px; height: 18px; color: var(--destaque); }
+  .hero h1 { font-size: clamp(4rem, 15vw, 11rem); max-width: 10ch; text-wrap: balance; }
+  .hero h1.nome-longo { font-size: clamp(3rem, 9vw, 7rem); max-width: 14ch; }
+  .hero .slogan { margin-top: 18px; font-family: var(--titulo); font-weight: 800; font-size: clamp(1.6rem, 3.6vw, 2.6rem); line-height: 1; text-transform: uppercase; color: var(--destaque); max-width: 22ch; }
+  .hero .sub { margin-top: 14px; color: var(--suave); max-width: 46ch; font-size: 1.125rem; }
+  .acoes { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+  /* barrinhas de progresso dos slides (estilo stories) */
+  .progresso { display: flex; gap: 6px; margin-top: 44px; max-width: min(360px, calc(100% - 84px)); }
+  .progresso button { flex: 1; height: 4px; border: 0; padding: 0; border-radius: 4px; background: color-mix(in srgb, var(--texto) 25%, transparent); cursor: pointer; overflow: hidden; position: relative; }
+  .progresso button::after { content: ""; position: absolute; inset: 0; background: var(--destaque); transform: scaleX(0); transform-origin: left; }
+  .progresso button.feito::after { transform: scaleX(1); }
+  .progresso button.ativo::after { animation: encher var(--tempo, 6s) linear forwards; }
+  @keyframes encher { to { transform: scaleX(1); } }
+
+  /* Contadores */
+  .numeros { border-block: 1px solid var(--linha); background: var(--superficie); }
+  .numeros ul { list-style: none; margin: 0 auto; padding: 0; display: grid; grid-template-columns: repeat(2, 1fr); }
+  .numeros li { padding: 28px 16px; border-right: 1px solid var(--linha); border-bottom: 1px solid var(--linha); }
+  .numeros li:nth-child(2n) { border-right: 0; }
+  .numeros b { display: block; font-family: var(--titulo); font-weight: 900; font-size: clamp(3rem, 8vw, 4.6rem); line-height: .95; color: var(--destaque); }
+  .numeros span { color: var(--suave); font-weight: 500; }
+
+  /* Modalidades */
+  .grade-modalidades { display: grid; gap: 14px; margin-top: 44px; }
+  .modalidade { position: relative; padding: 28px 26px 26px; border-radius: 22px; background: var(--superficie); overflow: hidden; transition: transform .2s ease; }
+  .modalidade:hover { transform: translateY(-4px); }
+  .modalidade::before { content: ""; position: absolute; left: 26px; top: 0; width: 44px; height: 4px; background: var(--destaque); border-radius: 0 0 4px 4px; }
+  .modalidade h3 { font-size: clamp(1.9rem, 4vw, 2.4rem); margin-bottom: 10px; }
+  .modalidade p { color: var(--suave); }
+
+  /* Destaque com pessoa treinando */
+  .destaque { display: grid; gap: 40px; align-items: center; }
+  .destaque figure { margin: 0; position: relative; }
+  .destaque figure img { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; border-radius: 28px; }
+  .destaque figure::after { content: ""; position: absolute; inset: auto -14px -14px auto; width: 45%; height: 45%; border: 3px solid var(--destaque); border-radius: 28px; z-index: -1; }
+  .destaque .texto-sobre { font-size: clamp(1.125rem, 2vw, 1.3rem); color: var(--suave); margin-top: 22px; max-width: 50ch; }
+  .lista-dif { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 12px; }
+  .lista-dif li { display: flex; align-items: center; gap: 12px; font-weight: 600; font-size: 1.0625rem; }
+  .lista-dif svg { width: 26px; height: 26px; color: var(--destaque); flex: none; }
+
+  /* Estrutura (só fotos reais) */
+  .cabeca-carrossel { display: flex; justify-content: space-between; align-items: end; gap: 20px; flex-wrap: wrap; }
+  .setas { display: flex; gap: 10px; }
+  .setas button { width: 52px; height: 52px; border-radius: 50%; border: 1.5px solid var(--linha); background: transparent; color: var(--texto); cursor: pointer; display: grid; place-items: center; }
+  .setas button:hover { border-color: var(--destaque); color: var(--destaque); }
+  .setas svg { width: 22px; height: 22px; }
+  .carrossel { display: grid; grid-auto-flow: column; grid-auto-columns: min(82%, 520px); gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory; margin-top: 36px; padding-bottom: 8px; scrollbar-width: none; }
+  .carrossel::-webkit-scrollbar { display: none; }
+  .carrossel img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 22px; scroll-snap-align: start; }
+
+  /* Planos */
+  .planos { background: var(--superficie); }
+  .grade-planos { display: grid; gap: 16px; margin-top: 44px; }
+  .plano { border-radius: 26px; padding: 30px 28px; background: var(--fundo); border: 1.5px solid var(--linha); display: flex; flex-direction: column; gap: 18px; }
+  .plano.principal { border-color: var(--destaque); box-shadow: 0 0 0 1px var(--destaque), 0 30px 60px -30px color-mix(in srgb, var(--destaque) 60%, transparent); }
+  .plano h3 { font-size: 2.6rem; }
+  .plano .quando { color: var(--suave); min-height: 3.2em; }
+  .plano .valor { font-family: var(--titulo); font-weight: 800; font-size: 1.6rem; text-transform: uppercase; }
+  .plano ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; flex: 1; }
+  .plano li { display: flex; gap: 10px; align-items: flex-start; }
+  .plano li svg { width: 22px; height: 22px; flex: none; color: var(--destaque); margin-top: 1px; }
+  .plano .botao { width: 100%; }
+  .aviso-planos { margin-top: 22px; color: var(--suave); font-size: .9375rem; }
+
+  /* Avaliações */
+  .grade-avaliacoes { display: grid; gap: 16px; margin-top: 44px; }
+  .avaliacao { margin: 0; padding: 28px; border-radius: 22px; border: 1.5px solid var(--linha); display: grid; gap: 16px; align-content: start; }
+  .avaliacao .estrelas { color: var(--destaque); letter-spacing: 3px; font-size: 1.1rem; }
+  .avaliacao blockquote { margin: 0; font-size: 1.125rem; line-height: 1.55; }
+  .avaliacao figcaption { color: var(--suave); font-weight: 600; }
+  .nota-geral { display: flex; align-items: baseline; gap: 12px; margin-top: 18px; color: var(--suave); }
+  .nota-geral b { font-family: var(--titulo); font-size: 3rem; color: var(--texto); line-height: 1; }
+
+  /* Horários e local */
+  .local-secao { display: grid; gap: 40px; }
+  .horarios { list-style: none; padding: 0; margin: 28px 0 0; display: grid; gap: 8px; }
+  .horarios li { display: flex; justify-content: space-between; gap: 16px; padding: 14px 18px; border-radius: 14px; background: var(--superficie); font-weight: 600; }
+  .horarios li span:last-child { color: var(--suave); font-weight: 500; }
+  .horarios li.hoje { box-shadow: inset 0 0 0 2px var(--destaque); }
+  .horarios li.hoje span:last-child { color: var(--texto); }
+  .endereco { margin-top: 26px; color: var(--suave); display: grid; gap: 6px; }
+  .endereco strong { color: var(--texto); }
+  .mapa { width: 100%; min-height: 380px; height: 100%; border: 0; border-radius: 26px; background: var(--superficie); filter: grayscale(.35); }
+
+  /* Chamada final */
+  .chamada { position: relative; isolation: isolate; text-align: center; overflow: hidden; }
+  .chamada .fundo-chamada { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: cover; opacity: .35; }
+  .chamada::before { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, var(--fundo), color-mix(in srgb, var(--fundo) 40%, transparent) 50%, var(--fundo)); }
+  .chamada h2 { font-size: clamp(3.2rem, 11vw, 8rem); max-width: 12ch; margin: 0 auto; }
+  .chamada p { color: var(--suave); margin: 20px auto 32px; max-width: 44ch; font-size: 1.125rem; }
+
+  footer { border-top: 1px solid var(--linha); padding-block: 28px 100px; color: var(--suave); font-size: .9375rem; }
+  footer .contem { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; }
+  footer a { color: var(--texto); }
+
+  .flutuante { position: fixed; right: 16px; bottom: 16px; z-index: 30; width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; background: #25d366; color: #fff; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+  .flutuante svg { width: 32px; height: 32px; }
+
+  /* Entrada suave das seções ao rolar (uma só animação, discreta) */
+  .js .revelar { opacity: 0; transform: translateY(24px); transition: opacity .7s ease, transform .7s ease; }
+  .js .revelar.visivel { opacity: 1; transform: none; }
+
+  @media (min-width: 720px) {
+    .numeros ul { grid-template-columns: repeat(var(--qtd, 4), 1fr); }
+    .numeros li { border-bottom: 0; border-right: 1px solid var(--linha); padding: 34px 24px; }
+    .numeros li:nth-child(2n) { border-right: 1px solid var(--linha); }
+    .numeros li:last-child { border-right: 0; }
+    .grade-modalidades { grid-template-columns: repeat(2, 1fr); }
+    .grade-avaliacoes { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  }
+  @media (min-width: 980px) {
+    .grade-modalidades { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .destaque { grid-template-columns: .9fr 1.1fr; gap: 72px; }
+    .grade-planos { grid-template-columns: repeat(3, 1fr); align-items: stretch; }
+    .plano.principal { transform: translateY(-12px); }
+    .local-secao { grid-template-columns: 1fr 1.2fr; }
+    .flutuante { display: none; }
+    footer { padding-bottom: 28px; }
+  }
+  @media (max-width: 860px) {
+    .menu { position: fixed; inset: var(--topo-h) 0 auto; flex-direction: column; gap: 0; background: var(--fundo); border-bottom: 1px solid var(--linha); padding: 8px 16px 16px; display: none; }
+    .menu.aberto { display: flex; }
+    .menu a { padding: 14px 0; border-bottom: 1px solid var(--linha); font-size: 1.0625rem; }
+    .abrir-menu { display: block; }
+    .topo .botao { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+    .slide { transform: none; }
+    .js .revelar { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+{% set icone_whats %}<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.5 14.4c-.3-.1-1.8-.9-2-1-.3-.1-.5-.1-.7.1-.2.3-.8 1-.9 1.2-.2.2-.3.2-.6.1-.3-.1-1.3-.5-2.4-1.5-.9-.8-1.5-1.8-1.7-2.1-.2-.3 0-.5.1-.6l.4-.5.3-.5c.1-.2 0-.4 0-.5l-.9-2.2c-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.1.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.8-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.2-.3-.3-.6-.4zM12 21.8c-1.8 0-3.5-.5-5-1.4l-.4-.2-3.7 1 1-3.6-.2-.4A9.8 9.8 0 1 1 12 21.8zm8.4-18.3A11.8 11.8 0 0 0 1.7 17.7L0 24l6.4-1.7A11.8 11.8 0 0 0 24 12c0-3.2-1.2-6.2-3.6-8.5z"/></svg>{% endset %}
+{% set icone_check %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>{% endset %}
+{% set icone_cta %}{% if s.cta_tipo == 'whatsapp' %}{{ icone_whats }}{% else %}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg>{% endif %}{% endset %}
+
+<header class="topo" id="topo">
+  <div class="faixa-previa" data-previa>
+    <span>Prévia criada por {{ s.previa_nome }} para {{ s.nome }}.</span>
+    {% if s.previa_link %}<a href="{{ s.previa_link }}" target="_blank" rel="noopener">Quero este site</a>{% endif %}
+  </div>
+  <div class="contem">
+    <a class="marca" href="#">
+      {% if s.logo %}<img src="{{ s.logo }}" alt="Logo {{ s.nome }}">{% else %}<span class="iniciais">{{ s.iniciais }}</span>{% endif %}
+      <span>{{ s.nome }}</span>
+    </a>
+    <nav class="menu" id="menu" aria-label="Seções">
+      {% if s.servicos %}<a href="#modalidades">Modalidades</a>{% endif %}
+      {% if s.galeria %}<a href="#estrutura">Estrutura</a>{% endif %}
+      <a href="#planos">Planos</a>
+      <a href="#local">Horários e local</a>
+    </nav>
+    {% if s.cta_link %}<a class="botao botao-cheio" href="{{ s.cta_link }}" target="_blank" rel="noopener">{{ icone_cta }}Quero treinar aqui</a>{% endif %}
+    <button class="abrir-menu" id="abrir-menu" aria-label="Abrir menu" aria-expanded="false" aria-controls="menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </div>
+</header>
+
+<main>
+  <section class="hero" aria-label="Apresentação">
+    <div class="slides">
+      {% for img in slides %}<img class="slide{% if loop.first %} ativo{% endif %}" src="{{ img }}" alt="" {% if not loop.first %}loading="lazy"{% endif %}>{% endfor %}
+    </div>
+    <div class="contem hero-texto">
+      <p class="local"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a7 7 0 0 0-7 7c0 5.3 7 13 7 13s7-7.7 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6.5a2.5 2.5 0 0 1 0 5z"/></svg>{{ s.categoria }} em {{ s.regiao }}</p>
+      <h1{% if s.nome|length > 22 %} class="nome-longo"{% endif %}>{{ s.nome }}</h1>
+      <p class="slogan">{{ s.slogan }}</p>
+      {% if s.subtitulo %}<p class="sub">{{ s.subtitulo }}</p>{% endif %}
+      <div class="acoes">
+        {% if s.cta_link %}<a class="botao botao-cheio" href="{{ s.cta_link }}" target="_blank" rel="noopener">{{ icone_cta }}{{ s.cta_texto }}</a>{% endif %}
+        <a class="botao botao-vazado" href="#planos">Ver planos</a>
+      </div>
+      {% if slides|length > 1 %}
+      <div class="progresso" id="progresso" aria-label="Fotos">
+        {% for img in slides %}<button type="button" aria-label="Foto {{ loop.index }}"></button>{% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </section>
+
+  {# Contadores: só números reais #}
+  {%- set numeros = [] -%}
+  {%- if s.nota %}{% set _ = numeros.append({'valor': s.nota, 'rotulo': 'de nota no Google'}) %}{% endif -%}
+  {%- if s.avaliacoes %}{% set _ = numeros.append({'valor': s.avaliacoes, 'rotulo': 'avaliações de alunos'}) %}{% endif -%}
+  {%- if (s.horas_semana or 0) >= 30 %}{% set _ = numeros.append({'valor': s.horas_semana, 'rotulo': 'horas de portas abertas por semana'}) %}{% endif -%}
+  {%- if s.servicos %}{% set _ = numeros.append({'valor': s.servicos|length, 'rotulo': 'modalidades para você'}) %}{% endif -%}
+  {% if numeros %}
+  <div class="numeros">
+    <ul class="contem" style="--qtd: {{ numeros|length }}">
+      {% for n in numeros %}<li><b data-contar="{{ n.valor }}">{{ n.valor }}</b><span>{{ n.rotulo }}</span></li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if s.servicos %}
+  <section id="modalidades">
+    <div class="contem">
+      <h2 class="titulo-secao revelar">Modalidades</h2>
+      <p class="intro-secao revelar">Escolha como quer treinar. A equipe ajuda você a montar a rotina certa para o seu objetivo.</p>
+      <div class="grade-modalidades">
+        {% for m in s.servicos %}
+        <article class="modalidade revelar"><h3>{{ m.titulo }}</h3><p>{{ m.descricao }}</p></article>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if s.sobre %}
+  <section style="padding-top: 0">
+    <div class="contem destaque">
+      {% if foto_destaque %}<figure class="revelar"><img src="{{ foto_destaque }}" alt="" loading="lazy"></figure>{% endif %}
+      <div class="revelar">
+        <h2 class="titulo-secao">Seu treino,<br>seu ritmo</h2>
+        <p class="texto-sobre">{{ s.sobre }}</p>
+        {% if s.diferenciais %}
+        <ul class="lista-dif">{% for d in s.diferenciais %}<li>{{ icone_check }}{{ d }}</li>{% endfor %}</ul>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if s.galeria %}
+  <section id="estrutura" style="padding-top: 0">
+    <div class="contem">
+      <div class="cabeca-carrossel">
+        <div>
+          <h2 class="titulo-secao revelar">Por dentro da {{ s.nome }}</h2>
+          <p class="intro-secao">Fotos reais do espaço.</p>
+        </div>
+        {% if s.galeria|length > 1 %}
+        <div class="setas">
+          <button type="button" data-carrossel="-1" aria-label="Foto anterior"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+          <button type="button" data-carrossel="1" aria-label="Próxima foto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+        </div>
+        {% endif %}
+      </div>
+      <div class="carrossel" id="carrossel">
+        {% if s.foto_real and s.foto_principal %}<img src="{{ s.foto_principal }}" alt="Foto de {{ s.nome }}" loading="lazy">{% endif %}
+        {% for f in s.galeria %}<img src="{{ f }}" alt="Foto de {{ s.nome }}" loading="lazy">{% endfor %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  {# Planos: sem preço inventado. O botão pergunta o valor no WhatsApp da academia. #}
+  {%- set planos = [
+      {'nome': 'Mensal', 'quando': 'Para começar agora e conhecer a academia.', 'itens': ['Acesso no horário de funcionamento', 'Orientação da equipe', 'Sem compromisso longo']},
+      {'nome': 'Trimestral', 'quando': 'Para criar o hábito e ver os primeiros resultados.', 'itens': ['Tudo do plano mensal', 'Tempo para evoluir com constância', 'Pergunte pelas condições']},
+      {'nome': 'Anual', 'quando': 'Para quem decidiu cuidar da saúde de vez.', 'itens': ['Tudo do plano trimestral', 'Um ano inteiro de treino', 'Pergunte pelas condições']},
+  ] -%}
+  <section class="planos" id="planos">
+    <div class="contem">
+      <h2 class="titulo-secao revelar">Planos</h2>
+      <p class="intro-secao revelar">Escolha o plano e fale direto com a {{ s.nome }} para saber valores e condições.</p>
+      <div class="grade-planos">
+        {% for p in planos %}
+        <article class="plano revelar{% if loop.index == 2 %} principal{% endif %}">
+          <h3>{{ p.nome }}</h3>
+          <p class="quando">{{ p.quando }}</p>
+          <ul>{% for i in p['itens'] %}<li>{{ icone_check }}<span>{{ i }}</span></li>{% endfor %}</ul>
+          <p class="valor">Valor sob consulta</p>
+          {% if whats %}
+          <a class="botao {% if loop.index == 2 %}botao-cheio{% else %}botao-vazado{% endif %}" target="_blank" rel="noopener"
+             href="{{ whats.split('?')[0] }}?text={{ ('Olá! Vi o site e quero saber o valor do plano ' ~ p.nome ~ '.')|urlencode }}">{{ icone_whats }}Quero saber o valor</a>
+          {% elif s.cta_link %}
+          <a class="botao botao-vazado" href="{{ s.cta_link }}">Ligar para saber o valor</a>
+          {% endif %}
+        </article>
+        {% endfor %}
+      </div>
+      <p class="aviso-planos">Valores, modalidades incluídas e condições são definidos pela academia.</p>
+    </div>
+  </section>
+
+  {% if s.depoimentos %}
+  <section id="avaliacoes">
+    <div class="contem">
+      <h2 class="titulo-secao revelar">Quem treina aqui</h2>
+      {% if s.nota %}<p class="nota-geral revelar"><b>{{ s.nota }}</b> de nota no Google{% if s.avaliacoes %}, com {{ s.avaliacoes }} avaliações{% endif %}</p>{% endif %}
+      <div class="grade-avaliacoes">
+        {% for d in s.depoimentos[:3] %}
+        <figure class="avaliacao revelar">
+          <span class="estrelas" aria-label="{{ d.estrelas }} estrelas">{{ '★' * d.estrelas }}</span>
+          <blockquote>{{ d.texto }}</blockquote>
+          <figcaption>{{ d.autor }}, avaliação no Google</figcaption>
+        </figure>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  <section id="local" {% if not s.depoimentos %}style="padding-top: 0"{% endif %}>
+    <div class="contem local-secao">
+      <div>
+        <h2 class="titulo-secao revelar">Horários e local</h2>
+        {% if s.horarios %}
+        <ul class="horarios" id="horarios">
+          {% for h in s.horarios %}<li data-dia="{{ h.dia|lower }}"><span>{{ h.dia }}</span><span>{{ h.horas }}</span></li>{% endfor %}
+        </ul>
+        {% endif %}
+        <div class="endereco">
+          {% if s.endereco %}<strong>{{ s.endereco }}</strong>{% endif %}
+          {% if s.telefone %}<span>{{ s.telefone }}</span>{% endif %}
+          <span><a href="{{ s.link_maps }}" target="_blank" rel="noopener">Abrir no Google Maps</a>{% if s.instagram %} · <a href="{{ s.instagram }}" target="_blank" rel="noopener">Instagram</a>{% endif %}</span>
+        </div>
+      </div>
+      <iframe class="mapa" src="{{ s.mapa_embed }}" title="Mapa com a localização de {{ s.nome }}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+    </div>
+  </section>
+
+  {% if s.cta_link %}
+  <section class="chamada">
+    {% if fundo_chamada %}<img class="fundo-chamada" src="{{ fundo_chamada }}" alt="" loading="lazy">{% endif %}
+    <div class="contem">
+      <h2 class="revelar">Bora começar?</h2>
+      <p>Fale com a {{ s.nome }} e agende sua aula experimental.</p>
+      <a class="botao botao-cheio" href="{{ s.cta_link }}" target="_blank" rel="noopener">{{ icone_cta }}{{ s.cta_texto }}</a>
+    </div>
+  </section>
+  {% endif %}
+</main>
+
+<footer>
+  <div class="contem">
+    <span>© {{ s.ano }} {{ s.nome }}</span>
+    <span>{{ s.regiao }}</span>
+  </div>
+</footer>
+
+{% if s.link_whatsapp %}<a class="flutuante" href="{{ s.link_whatsapp }}" target="_blank" rel="noopener" aria-label="Conversar no WhatsApp">{{ icone_whats }}</a>{% endif %}
+
+<script>
+(() => {
+  const semMovimento = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Cabeçalho ganha fundo ao rolar
+  const topo = document.getElementById("topo");
+  const aoRolar = () => topo.classList.toggle("rolou", scrollY > 40);
+  addEventListener("scroll", aoRolar, { passive: true }); aoRolar();
+
+  // Menu do celular
+  const menu = document.getElementById("menu"), botaoMenu = document.getElementById("abrir-menu");
+  botaoMenu.addEventListener("click", () => {
+    const aberto = menu.classList.toggle("aberto");
+    botaoMenu.setAttribute("aria-expanded", aberto);
+  });
+  menu.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => menu.classList.remove("aberto")));
+
+  // Slides do topo com barrinhas de progresso
+  const slides = [...document.querySelectorAll(".slide")];
+  const barras = [...document.querySelectorAll("#progresso button")];
+  const TEMPO = 6000;
+  let atual = 0, timer;
+  function mostrar(i) {
+    slides[atual].classList.remove("ativo");
+    atual = (i + slides.length) % slides.length;
+    slides[atual].classList.add("ativo");
+    barras.forEach((b, n) => {
+      b.classList.remove("ativo", "feito");
+      void b.offsetWidth; // reinicia a animação da barra
+      if (n < atual) b.classList.add("feito");
+      if (n === atual) b.classList.add("ativo");
+    });
+    clearTimeout(timer);
+    if (!semMovimento) timer = setTimeout(() => mostrar(atual + 1), TEMPO);
+  }
+  if (slides.length > 1) {
+    document.documentElement.style.setProperty("--tempo", TEMPO + "ms");
+    barras.forEach((b, n) => b.addEventListener("click", () => mostrar(n)));
+    mostrar(0);
+  }
+
+  // Contadores animados quando aparecem na tela
+  const formatar = (v, casas) => v.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
+  const contar = (el) => {
+    const texto = el.dataset.contar, alvo = parseFloat(texto.replace(".", "").replace(",", "."));
+    const casas = texto.includes(",") ? 1 : 0;
+    if (isNaN(alvo) || semMovimento) return;
+    const inicio = performance.now(), dur = 1400;
+    const passo = (t) => {
+      const p = Math.min((t - inicio) / dur, 1), e = 1 - Math.pow(1 - p, 3);
+      el.textContent = formatar(alvo * e, casas);
+      if (p < 1) requestAnimationFrame(passo); else el.textContent = texto;
+    };
+    requestAnimationFrame(passo);
+  };
+
+  // Revela seções e dispara contadores ao rolar
+  const observador = new IntersectionObserver((itens) => {
+    itens.forEach((it) => {
+      if (!it.isIntersecting) return;
+      it.target.classList.add("visivel");
+      if (it.target.dataset.contar) contar(it.target);
+      observador.unobserve(it.target);
+    });
+  }, { threshold: 0.2 });
+  document.querySelectorAll(".revelar, [data-contar]").forEach((el) => observador.observe(el));
+
+  // Setas do carrossel da estrutura
+  const carrossel = document.getElementById("carrossel");
+  document.querySelectorAll("[data-carrossel]").forEach((b) => b.addEventListener("click", () => {
+    carrossel.scrollBy({ left: Number(b.dataset.carrossel) * carrossel.clientWidth * 0.8, behavior: semMovimento ? "auto" : "smooth" });
+  }));
+
+  // Destaca o horário de hoje
+  const hoje = new Date().toLocaleDateString("pt-BR", { weekday: "long" }).toLowerCase();
+  document.querySelectorAll("#horarios li").forEach((li) => { if (li.dataset.dia.startsWith(hoje.split("-")[0])) li.classList.add("hoje"); });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "id": "igrejas",
+  "nome": "Igrejas",
+  "termo_busca": "Igreja Evangélica",
+  "template": "padrao",
+  "cor_padrao": "#1e3a8a",
+  "icone": "✝",
+  "roteiro": "Tom acolhedor, respeitoso e esperançoso. Foque em comunidade, família e fé. Convide a pessoa a visitar um culto. Use 'serviços' como as atividades da igreja (cultos, ministérios, células, ação social). Não cite versículos específicos nem denominação se não estiver no nome. Não invente horários de culto: use apenas os horários fornecidos.",
+  "textos_padrao": {
+    "slogan": "Um lugar para você e sua família",
+    "subtitulo": "Venha nos visitar em {regiao}. Será uma alegria receber você.",
+    "sobre": "A {nome} é uma comunidade de fé que caminha junto, acolhe quem chega e serve à região de {regiao}. Aqui você encontra uma família para crescer, ser cuidado e cuidar de outras pessoas.",
+    "cta": "Fale com a gente"
+  },
+  "servicos_padrao": [
+    {
+      "titulo": "Cultos",
+      "descricao": "Momentos de louvor, palavra e comunhão para toda a família."
+    },
+    {
+      "titulo": "Ministério infantil",
+      "descricao": "Um espaço seguro e alegre para as crianças aprenderem sobre a fé."
+    },
+    {
+      "titulo": "Grupos e células",
+      "descricao": "Encontros durante a semana para conversar, orar e criar amizades."
+    },
+    {
+      "titulo": "Ação social",
+      "descricao": "Iniciativas para servir e ajudar quem mais precisa na nossa região."
+    }
+  ],
+  "imagens": [],
+  "diferenciais_padrao": [
+    "Ambiente acolhedor",
+    "Atividades para toda a família",
+    "Presente na comunidade"
+  ],
+  "mensagem_whatsapp": "Olá, {nome}! Tudo bem? Meu nome é {meu_nome}, faço sites para negócios aqui da região. Vi vocês no Google Maps e montei uma prévia de como poderia ficar o site de vocês: {link}\n\nÉ só uma demonstração, consigo deixar ainda melhor e do jeito de vocês. Posso te explicar como funciona?"
+}
