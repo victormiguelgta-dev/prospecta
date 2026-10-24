@@ -15,30 +15,29 @@ load_dotenv(RAIZ / ".env")
 
 # Pastas de dados
 PASTA_DADOS = RAIZ / "dados"
-PASTA_NICHOS = PASTA_DADOS / "nichos"          # um .json por nicho (roteiro da IA)
-PASTA_ARQUIVOS_NICHO = PASTA_DADOS / "arquivos_nicho"  # imagens e material de consulta de cada nicho
+PASTA_NICHOS = PASTA_DADOS / "nichos"           # um .json por nicho
 ARQUIVO_REGIOES = PASTA_DADOS / "regioes.json"  # lista de regiões editável no painel
-ARQUIVO_BANCO = PASTA_DADOS / "prospeccao.db"   # banco SQLite com os leads
+ARQUIVO_PESOS = PASTA_DADOS / "potencial.json"  # pesos da nota de potencial (edite à vontade)
+ARQUIVO_BANCO = Path(os.getenv("PROSPECTA_DB", PASTA_DADOS / "prospeccao.db"))
 
-# Templates HTML dos sites e saída
-PASTA_TEMPLATES = RAIZ / "templates_sites"
+# Saídas (planilhas, pacotes e diagnósticos)
 PASTA_SAIDA = RAIZ / "saida"
-PASTA_SITES = PASTA_SAIDA / "sites"             # cada lead vira saida/sites/<slug>/index.html
 PASTA_PLANILHAS = PASTA_SAIDA / "planilhas"
 
-# IA (Gemini). Sem chave, o gerador usa os textos padrão do nicho (custo zero).
+# Painel em React: depois do "npm run build" ele fica em painel/dist
+PASTA_PAINEL = RAIZ / "painel" / "dist"
+
+# IA (Gemini). Sem chave, a classificação usa só as regras (custo zero).
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GEMINI_MODELO = os.getenv("GEMINI_MODELO", "gemini-3.8-flash").strip()
 
-# Netlify (publicação dos demos)
-NETLIFY_TOKEN = os.getenv("NETLIFY_TOKEN", "").strip()
-NETLIFY_SITE_ID = os.getenv("NETLIFY_SITE_ID", "").strip()
-# Endereço público dos demos, ex.: https://meus-demos.netlify.app
-URL_DEMOS = os.getenv("URL_DEMOS", "").strip().rstrip("/")
-
-# Seus dados, que aparecem na faixa "prévia criada por..." e na mensagem
+# Seus dados, usados na mensagem de WhatsApp
 SEU_NOME = os.getenv("SEU_NOME", "Victor Miguel").strip()
-SEU_WHATSAPP = os.getenv("SEU_WHATSAPP", "").strip()  # só números, ex.: 5561999999999
 
-for pasta in (PASTA_DADOS, PASTA_NICHOS, PASTA_ARQUIVOS_NICHO, PASTA_SITES, PASTA_PLANILHAS):
+# Endereço em que o painel fica aberto. 127.0.0.1 = só neste computador.
+# Para abrir pelo celular via VPN (ex.: Tailscale), use o IP da VPN ou 0.0.0.0.
+HOST = os.getenv("HOST", "127.0.0.1").strip()
+PORTA = int(os.getenv("PORTA", "8000"))
+
+for pasta in (PASTA_DADOS, PASTA_NICHOS, PASTA_PLANILHAS):
     pasta.mkdir(parents=True, exist_ok=True)

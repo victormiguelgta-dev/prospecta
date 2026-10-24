@@ -1,48 +1,47 @@
 """
-Servidor do painel. Rode com:   python app.py
+Servidor do Prospecta (CRM de prospecção). Rode com:   python app.py
 e abra http://localhost:8000 no navegador.
 
-Ele junta tudo: serve o painel (pasta painel/), expõe uma API simples
-para o painel conversar com o bot, e mostra os demos em /demos/<slug>/.
+Ele junta tudo: serve o painel em React (pasta painel/dist, gerada pelo
+"npm run build") e expõe a API que o painel usa para conversar com o bot.
 """
 import asyncio
+import re
 import sys
 import threading
-import zipfile
-from datetime import datetime
+from datetime import date, datetime
+from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from core import arquivos_nicho, config, db, deploy, exportar, gerador, modelos, nichos, qualidade
-from core.ia import ia_disponivel, modelo_em_uso
-from core.limpeza import SITUACOES, eh_celular, normalizar_whatsapp
-from core.scraper import recoletar_lead, rodar_busca
+from core import analise, config, db, exportar, nichos, pacote
 from core.diagnostico import PASTA_DIAGNOSTICO, diagnosticar
+from core.ia import ia_disponivel, modelo_em_uso
+from core.limpeza import NOMES_REDES, SITUACOES, normalizar_whatsapp
+from core.mensagem import link_ligar, link_whatsapp, mensagem_inicial
+from core.oportunidades import NOMES_SERVICOS
+from core.scraper import recoletar_lead, rodar_busca
 
-app = FastAPI(title="Prospecta Sites")
+app = FastAPI(title="Prospecta")
 db.iniciar()
 
 
 @app.middleware("http")
 async def sem_cache(request, chamar):
-    """
-    O navegador não guarda cópia do painel nem dos demos: depois de atualizar
-    o código ou refazer um site, a versão nova aparece no próximo carregamento.
-    """
+    """O navegador não guarda cópia da API: o painel sempre vê os dados mais novos."""
     resposta = await chamar(request)
-    caminho = request.url.path
-    if caminho == "/" or caminho.startswith(("/painel", "/demos", "/api", "/arquivos-nicho")):
+    if request.url.path.startswith("/api"):
         resposta.headers["Cache-Control"] = "no-store"
     return resposta
 
 
 # ---------------------------------------------------------------------------
-# Tarefas longas (busca, geração em lote, publicação) rodam numa thread
-# separada. O painel consulta o progresso a cada segundo.
+# Tarefas longas (busca, recoleta, reanálise) rodam numa thread separada.
+# O painel consulta o progresso a cada segundo.
 # Só uma tarefa por vez, para não abrir vários navegadores juntos.
 # ---------------------------------------------------------------------------
 class Tarefa:
@@ -90,14 +89,25 @@ def _rodar_async(corrotina):
 
 def _enriquecer(lead: dict) -> dict:
     """Campos calculados que o painel usa (links prontos, rótulos)."""
-    numero = lead.get("whatsapp") or normalizar_whatsapp(lead.get("telefone"))
     lead["situacao_rotulo"] = SITUACOES.get(lead.get("situacao_site"), "")
-    lead["telefone_tipo"] = "whatsapp" if lead.get("whatsapp") else ("celular" if eh_celular(numero) else ("fixo" if numero else ""))
-    lead["link_whatsapp"] = gerador.link_whatsapp(lead) if numero else ""
-    lead["mensagem"] = gerador.mensagem_whatsapp(lead) if lead.get("slug") else ""
-    lead["demo_local"] = f"/demos/{lead['slug']}/" if lead.get("slug") else ""
-    lead["demo_publico"] = f"{config.URL_DEMOS}/{lead['slug']}/" if lead.get("slug") and config.URL_DEMOS else ""
-    lead["qualidade"] = qualidade.avaliar(lead)
+    lead["mensagem"] = mensagem_inicial(lead)
+    lead["link_whatsapp"] = link_whatsapp(lead)
+    lead["link_ligar"] = link_ligar(lead)
+    if lead.get("etapa_em"):
+        try:
+            lead["dias_na_etapa"] = (date.today() - datetime.fromisoformat(lead["etapa_em"]).date()).days
+        except ValueError:
+            lead["dias_na_etapa"] = None
+    # O painel não precisa das avaliações inteiras na lista (são só para classificar)
+    lead.pop("avaliacoes_lidas", None)
+    lead.pop("depoimentos", None)
+    return lead
+
+
+def _lead_ou_404(lead_id: str) -> dict:
+    lead = db.buscar(lead_id)
+    if not lead:
+        raise HTTPException(404, "Lead não encontrado")
     return lead
 
 
@@ -107,14 +117,15 @@ def estado():
     return {
         "ia": ia_disponivel(),
         "modelo_ia": modelo_em_uso(),
-        "netlify": deploy.netlify_configurado(),
-        "url_demos": config.URL_DEMOS,
         "seu_nome": config.SEU_NOME,
-        "seu_whatsapp": bool(config.SEU_WHATSAPP),
         "resumo": db.resumo(),
-        "status": db.STATUS,
+        "etapas": [{"id": e, "nome": db.NOMES_ETAPAS[e]} for e in db.ETAPAS],
+        "classes": [{"id": c, "nome": db.NOMES_CLASSES[c]} for c in db.CLASSES],
+        "servicos": [{"id": s, "nome": n} for s, n in NOMES_SERVICOS.items()],
+        "tipos_contato": db.TIPOS_CONTATO,
         "situacoes": SITUACOES,
-        "templates": nichos.listar_templates(),
+        "redes": NOMES_REDES,
+        "tarefa_rodando": tarefa.rodando,
     }
 
 
@@ -123,27 +134,14 @@ class NichoEntrada(BaseModel):
     id: str = ""
     nome: str
     termo_busca: str = ""
-    template: str = "padrao"
-    cor_padrao: str = "#2563eb"
-    icone: str = ""
-    roteiro: str = ""
-    textos_padrao: dict = {}
-    servicos_padrao: list = []
-    diferenciais_padrao: list = []
-    mensagem_whatsapp: str = ""
+    icone: str = "✦"
+    agenda: bool = False
+    pedido_online: bool = False
 
 
 @app.get("/api/nichos")
 def listar_nichos():
     return nichos.listar_nichos()
-
-
-@app.get("/api/nichos/{nicho_id}")
-def ver_nicho(nicho_id: str):
-    n = nichos.carregar_nicho(nicho_id)
-    if not n:
-        raise HTTPException(404, "Nicho não encontrado")
-    return n
 
 
 @app.post("/api/nichos")
@@ -162,142 +160,6 @@ def salvar_nicho(nicho: NichoEntrada):
 def excluir_nicho(nicho_id: str):
     nichos.excluir_nicho(nicho_id)
     return {"ok": True}
-
-
-# ------------------- Imagens e material de consulta do nicho -------------------
-@app.get("/api/nichos/{nicho_id}/arquivos")
-def arquivos_do_nicho(nicho_id: str):
-    return arquivos_nicho.resumo(nicho_id)
-
-
-@app.post("/api/nichos/{nicho_id}/imagens")
-async def enviar_imagens(nicho_id: str, arquivos: list[UploadFile] = File(...),
-                         uso: str = Form("detalhe"), descricao: str = Form("")):
-    erros = []
-    for arquivo in arquivos:
-        try:
-            arquivos_nicho.adicionar_imagem(nicho_id, arquivo.filename, await arquivo.read(), uso, descricao)
-        except ValueError as erro:
-            erros.append(str(erro))
-    return {**arquivos_nicho.resumo(nicho_id), "erros": erros}
-
-
-class ImagemEdicao(BaseModel):
-    uso: str | None = None
-    descricao: str | None = None
-
-
-@app.patch("/api/nichos/{nicho_id}/imagens/{arquivo}")
-def editar_imagem(nicho_id: str, arquivo: str, edicao: ImagemEdicao):
-    try:
-        return arquivos_nicho.editar_imagem(nicho_id, arquivo, edicao.uso, edicao.descricao)
-    except ValueError as erro:
-        raise HTTPException(400, str(erro))
-
-
-@app.delete("/api/nichos/{nicho_id}/imagens/{arquivo}")
-def remover_imagem(nicho_id: str, arquivo: str):
-    arquivos_nicho.remover_imagem(nicho_id, arquivo)
-    return arquivos_nicho.resumo(nicho_id)
-
-
-@app.get("/arquivos-nicho/{nicho_id}/{arquivo}")
-def ver_imagem_nicho(nicho_id: str, arquivo: str):
-    caminho = arquivos_nicho.caminho_imagem(nicho_id, arquivo)
-    if "/" in arquivo or "\\" in arquivo or not caminho.exists():
-        raise HTTPException(404, "Imagem não encontrada")
-    return FileResponse(caminho)
-
-
-@app.post("/api/nichos/{nicho_id}/consulta")
-async def enviar_consulta(nicho_id: str, arquivos: list[UploadFile] = File(...)):
-    erros = []
-    for arquivo in arquivos:
-        try:
-            arquivos_nicho.adicionar_consulta(nicho_id, arquivo.filename, await arquivo.read())
-        except ValueError as erro:
-            erros.append(str(erro))
-    return {**arquivos_nicho.resumo(nicho_id), "erros": erros}
-
-
-@app.get("/api/nichos/{nicho_id}/consulta/{arquivo}")
-def ler_consulta(nicho_id: str, arquivo: str):
-    return {"arquivo": arquivo, "texto": arquivos_nicho.ler_consulta(nicho_id, arquivo)}
-
-
-@app.delete("/api/nichos/{nicho_id}/consulta/{arquivo}")
-def remover_consulta(nicho_id: str, arquivo: str):
-    arquivos_nicho.remover_consulta(nicho_id, arquivo)
-    return arquivos_nicho.resumo(nicho_id)
-
-
-# ------------------------------ Modelo de site ------------------------------
-@app.get("/api/nichos/{nicho_id}/modelo")
-def status_modelo(nicho_id: str):
-    return modelos.status(nicho_id)
-
-
-@app.post("/api/nichos/{nicho_id}/modelo")
-async def enviar_modelo(nicho_id: str, arquivo: UploadFile = File(...), tema: str = Form("claro")):
-    try:
-        return modelos.importar(nicho_id, arquivo.filename, await arquivo.read(), tema)
-    except (ValueError, zipfile.BadZipFile) as erro:
-        raise HTTPException(400, str(erro))
-
-
-@app.post("/api/nichos/{nicho_id}/modelo/template")
-async def enviar_template_editado(nicho_id: str, arquivo: UploadFile = File(...)):
-    """Template editado à mão (com as variáveis {{ s.... }})."""
-    try:
-        return modelos.salvar_template(nicho_id, (await arquivo.read()).decode("utf-8", errors="ignore"))
-    except ValueError as erro:
-        raise HTTPException(400, str(erro))
-
-
-@app.post("/api/nichos/{nicho_id}/modelo/converter")
-def converter_modelo(nicho_id: str):
-    tarefa.iniciar("conversao", lambda: modelos.converter_com_ia(nicho_id, log=tarefa.escrever))
-    return {"ok": True}
-
-
-class ModeloEdicao(BaseModel):
-    tema: str | None = None
-    em_uso: bool | None = None
-
-
-@app.patch("/api/nichos/{nicho_id}/modelo")
-def editar_modelo(nicho_id: str, edicao: ModeloEdicao):
-    try:
-        if edicao.tema:
-            modelos.definir_tema(nicho_id, edicao.tema)
-        if edicao.em_uso is not None:
-            modelos.usar(nicho_id, edicao.em_uso)
-    except ValueError as erro:
-        raise HTTPException(400, str(erro))
-    return modelos.status(nicho_id)
-
-
-@app.post("/api/nichos/{nicho_id}/modelo/previa")
-def previa_modelo(nicho_id: str):
-    try:
-        return {"url": modelos.gerar_previa(nicho_id)}
-    except Exception as erro:
-        raise HTTPException(400, str(erro))
-
-
-@app.get("/api/nichos/{nicho_id}/modelo/baixar")
-def baixar_modelo(nicho_id: str, qual: str = "template"):
-    caminho = modelos.caminho_template(nicho_id) if qual == "template" else modelos.caminho_original(nicho_id)
-    if not caminho.exists():
-        raise HTTPException(404, "Arquivo não encontrado")
-    nome = f"{modelos.nome_template(nicho_id)}{'.html.j2' if qual == 'template' else '-original.html'}"
-    return FileResponse(caminho, filename=nome, media_type="text/plain")
-
-
-@app.delete("/api/nichos/{nicho_id}/modelo")
-def remover_modelo(nicho_id: str):
-    modelos.remover(nicho_id)
-    return modelos.status(nicho_id)
 
 
 # --------------------------------- Regiões ---------------------------------
@@ -319,6 +181,21 @@ class BuscaEntrada(BaseModel):
     headless: bool = True
     buscar_instagram: bool = True
     coletar_extras: bool = True
+    usar_ia: bool = True
+
+
+def _analisar_e_contar(lead_id: str, usar_ia: bool):
+    """Analisa o lead que o bot acabou de salvar e escreve a classe no log."""
+    try:
+        lead = analise.analisar(lead_id, usar_ia, log=tarefa.escrever)
+    except Exception as erro:
+        tarefa.escrever(f"    análise falhou: {str(erro)[:120]}")
+        return
+    if lead.get("estado") == "descartado":
+        tarefa.escrever(f"    ⛔ descartado: {lead.get('motivo')}")
+    else:
+        servicos = ", ".join(NOMES_SERVICOS[o["servico"]] for o in lead.get("oportunidades") or []) or "nada"
+        tarefa.escrever(f"    ✅ {db.NOMES_CLASSES.get(lead['classe'], '')} ({lead['nota_potencial']}/100) · vender: {servicos}")
 
 
 @app.post("/api/busca")
@@ -330,15 +207,19 @@ def iniciar_busca(busca: BuscaEntrada):
         raise HTTPException(400, "Escolha pelo menos uma região")
     opcoes = {"limite": max(1, min(busca.limite, 60)), "headless": busca.headless,
               "buscar_instagram": busca.buscar_instagram, "coletar_extras": busca.coletar_extras}
+
+    async def ao_salvar(lead_id):
+        await asyncio.to_thread(_analisar_e_contar, lead_id, busca.usar_ia)
+
     tarefa.iniciar("busca", lambda: _rodar_async(
-        rodar_busca(nicho, busca.regioes, opcoes, tarefa.escrever, lambda: tarefa.parar)))
+        rodar_busca(nicho, busca.regioes, opcoes, tarefa.escrever, lambda: tarefa.parar, ao_salvar)))
     return {"ok": True}
 
 
 @app.get("/api/tarefa")
 def ver_tarefa(desde: int = 0):
     return {"tipo": tarefa.tipo, "rodando": tarefa.rodando, "total": len(tarefa.log), "log": tarefa.log[desde:],
-            "resultado": tarefa.resultado}
+            "resultado": tarefa.resultado, "inicio": tarefa.inicio.isoformat() if tarefa.inicio else None}
 
 
 @app.post("/api/tarefa/parar")
@@ -350,51 +231,151 @@ def parar_tarefa():
 
 # ---------------------------------- Leads ----------------------------------
 @app.get("/api/leads")
-def listar_leads(nicho: str = "", status: str = "", situacao: str = "", texto: str = "", dados: str = ""):
-    leads = [_enriquecer(l) for l in db.listar(nicho or None, status or None, situacao or None, texto or None)]
-    if dados:
-        leads = [l for l in leads if l["qualidade"]["nivel"] == dados]
-    return leads
+def listar_leads(nicho: str = "", etapa: str = "", estado: str = "ativo", classe: str = "", servico: str = "",
+                 texto: str = ""):
+    return [_enriquecer(l) for l in db.listar(nicho or None, etapa or None, estado or None, classe or None,
+                                               servico or None, texto or None)]
+
+
+@app.get("/api/ligar-hoje")
+def leads_para_ligar_hoje():
+    return [_enriquecer(l) for l in db.ligar_hoje()]
+
+
+@app.get("/api/leads/{lead_id}")
+def ver_lead(lead_id: str):
+    lead = _enriquecer(_lead_ou_404(lead_id))
+    lead["contatos"] = db.listar_contatos(lead_id)
+    return lead
 
 
 class LeadEdicao(BaseModel):
-    status: str | None = None
+    etapa: str | None = None
+    proximo_passo: str | None = None
+    data_proximo_passo: str | None = None
     observacoes: str | None = None
     whatsapp: str | None = None
+    email: str | None = None
     nome: str | None = None
-    fotos: list[str] | None = None   # nova ordem (a primeira vai para o topo) ou sem as removidas
 
 
 @app.patch("/api/leads/{lead_id}")
 def editar_lead(lead_id: str, edicao: LeadEdicao):
+    lead = _lead_ou_404(lead_id)
     campos = {k: v for k, v in edicao.model_dump().items() if v is not None}
-    if "status" in campos and campos["status"] not in db.STATUS:
-        raise HTTPException(400, "Status inválido")
+    if "etapa" in campos:
+        if campos["etapa"] not in db.ETAPAS:
+            raise HTTPException(400, "Etapa inválida")
+        if campos["etapa"] != lead.get("etapa"):
+            db.adicionar_contato(lead_id, "anotacao",
+                                 f"Movido para {db.NOMES_ETAPAS[campos['etapa']]}")
+        if lead.get("estado") == "descartado":
+            campos["estado"] = "ativo"   # você decidiu trabalhar com ele mesmo assim
     if "whatsapp" in campos:
         campos["whatsapp"] = normalizar_whatsapp(campos["whatsapp"])
-    if campos.get("status") == "enviado":
-        campos["enviado_em"] = datetime.now().isoformat(timespec="seconds")
-    if "fotos" in campos:
-        anteriores = db.buscar(lead_id).get("fotos") or []
-        campos["fotos"] = [f for f in campos["fotos"] if f in anteriores]  # só fotos que já eram do lead
-        gerador.limpar_fotos_baixadas(db.buscar(lead_id))
     db.atualizar(lead_id, campos)
-    return _enriquecer(db.buscar(lead_id))
+    return ver_lead(lead_id)
+
+
+class CongelarEntrada(BaseModel):
+    data_ligar: str = ""     # AAAA-MM-DD: o dia em que você quer ligar de novo
+    motivo: str = "Parou de responder"
+
+
+@app.post("/api/leads/{lead_id}/congelar")
+def congelar(lead_id: str, entrada: CongelarEntrada):
+    _lead_ou_404(lead_id)
+    if entrada.data_ligar and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", entrada.data_ligar):
+        raise HTTPException(400, "Data inválida (use AAAA-MM-DD)")
+    db.atualizar(lead_id, {"estado": "congelado", "motivo": entrada.motivo,
+                           "proximo_passo": "Ligar de novo (congelado)" if entrada.data_ligar else "",
+                           "data_proximo_passo": entrada.data_ligar})
+    db.adicionar_contato(lead_id, "anotacao", f"Congelado: {entrada.motivo}")
+    return ver_lead(lead_id)
+
+
+class ArquivarEntrada(BaseModel):
+    motivo: str = "Sem interesse agora"
+
+
+@app.post("/api/leads/{lead_id}/arquivar")
+def arquivar(lead_id: str, entrada: ArquivarEntrada):
+    _lead_ou_404(lead_id)
+    db.atualizar(lead_id, {"estado": "arquivado", "motivo": entrada.motivo, "data_proximo_passo": ""})
+    db.adicionar_contato(lead_id, "anotacao", f"Arquivado: {entrada.motivo}")
+    return ver_lead(lead_id)
+
+
+@app.post("/api/leads/{lead_id}/reativar")
+def reativar(lead_id: str):
+    lead = _lead_ou_404(lead_id)
+    db.atualizar(lead_id, {"estado": "ativo", "motivo": ""})
+    db.adicionar_contato(lead_id, "anotacao", f"Voltou para o quadro (estava {lead.get('estado')})")
+    return ver_lead(lead_id)
 
 
 @app.delete("/api/leads/{lead_id}")
 def excluir_lead(lead_id: str):
-    gerador.apagar_site(lead_id)
     db.excluir(lead_id)
     return {"ok": True}
 
 
+class ContatoEntrada(BaseModel):
+    tipo: str = "anotacao"
+    anotacao: str = ""
+
+
+@app.post("/api/leads/{lead_id}/contatos")
+def novo_contato(lead_id: str, contato: ContatoEntrada):
+    _lead_ou_404(lead_id)
+    if contato.tipo not in db.TIPOS_CONTATO:
+        raise HTTPException(400, "Tipo de contato inválido")
+    db.adicionar_contato(lead_id, contato.tipo, contato.anotacao.strip())
+    return ver_lead(lead_id)
+
+
+@app.delete("/api/contatos/{contato_id}")
+def apagar_contato(contato_id: int):
+    db.excluir_contato(contato_id)
+    return {"ok": True}
+
+
+# ------------------------------- Análise -----------------------------------
+@app.post("/api/leads/{lead_id}/analisar")
+def analisar_um(lead_id: str, usar_ia: bool = True):
+    _lead_ou_404(lead_id)
+    try:
+        analise.analisar(lead_id, usar_ia)
+    except Exception as erro:
+        raise HTTPException(500, f"Não consegui analisar: {erro}")
+    return ver_lead(lead_id)
+
+
+class ReanaliseEntrada(BaseModel):
+    ids: list[str] = []      # vazio = todos os leads ativos
+    usar_ia: bool = True
+
+
+@app.post("/api/reanalisar")
+def reanalisar(entrada: ReanaliseEntrada):
+    ids = entrada.ids or [l["id"] for l in db.listar(estado="ativo")]
+
+    def executar():
+        for i, lead_id in enumerate(ids, 1):
+            if tarefa.parar:
+                tarefa.escrever("⏹ Interrompido.")
+                break
+            tarefa.escrever(f"[{i}/{len(ids)}] {db.buscar(lead_id)['nome']}")
+            _analisar_e_contar(lead_id, entrada.usar_ia)
+        tarefa.escrever(f"🏁 {len(ids)} leads analisados.")
+    tarefa.iniciar("reanalise", executar)
+    return {"ok": True, "total": len(ids)}
+
+
 @app.post("/api/leads/{lead_id}/recoletar")
 def recoletar(lead_id: str):
-    """Busca de novo no Maps as fotos, avaliações e descrição deste lead."""
-    lead = db.buscar(lead_id)
-    if not lead:
-        raise HTTPException(404, "Lead não encontrado")
+    """Busca de novo no Maps os dados deste lead e analisa outra vez."""
+    lead = _lead_ou_404(lead_id)
     nicho = nichos.carregar_nicho(lead["nicho"]) or {"id": lead["nicho"], "nome": lead["nicho"]}
 
     def executar():
@@ -404,8 +385,7 @@ def recoletar(lead_id: str):
         except Exception as erro:
             tarefa.escrever(f"❌ Não consegui abrir a ficha no Maps: {str(erro).splitlines()[0][:160]}")
             return
-        gerador.limpar_fotos_baixadas(db.buscar(lead_id))
-        tarefa.escrever("Agora clique em Refazer para o site usar os dados novos.")
+        _analisar_e_contar(lead_id, True)
     tarefa.iniciar("recoleta", executar)
     return {"ok": True}
 
@@ -413,9 +393,7 @@ def recoletar(lead_id: str):
 @app.post("/api/leads/{lead_id}/diagnostico")
 def diagnostico(lead_id: str):
     """Abre a ficha do lead no Maps e salva prints + relatório do que o bot achou."""
-    lead = db.buscar(lead_id)
-    if not lead:
-        raise HTTPException(404, "Lead não encontrado")
+    lead = _lead_ou_404(lead_id)
 
     def executar():
         nome = _rodar_async(diagnosticar(lead, tarefa.escrever))
@@ -427,106 +405,71 @@ def diagnostico(lead_id: str):
 
 @app.get("/api/diagnostico/{nome}")
 def baixar_diagnostico(nome: str):
-    import re as _re
-    if not _re.fullmatch(r"diagnostico-[a-z0-9-]+\.zip", nome) or not (PASTA_DIAGNOSTICO / nome).exists():
+    if not re.fullmatch(r"diagnostico-[a-z0-9-]+\.zip", nome) or not (PASTA_DIAGNOSTICO / nome).exists():
         raise HTTPException(404, "Arquivo não encontrado")
     return FileResponse(PASTA_DIAGNOSTICO / nome, filename=nome)
 
 
-class GerarEntrada(BaseModel):
-    usar_ia: bool = True
-    refazer_textos: bool = False
-
-
-@app.post("/api/leads/{lead_id}/gerar")
-def gerar_um(lead_id: str, opcoes: GerarEntrada):
-    try:
-        lead = gerador.gerar_site(lead_id, opcoes.usar_ia, opcoes.refazer_textos, log=tarefa.escrever)
-    except ValueError as erro:
-        raise HTTPException(400, str(erro))
-    return _enriquecer(lead)
-
-
-@app.delete("/api/leads/{lead_id}/site")
-def apagar_demo(lead_id: str):
-    gerador.apagar_site(lead_id)
-    return _enriquecer(db.buscar(lead_id))
-
-
-class LoteEntrada(BaseModel):
-    ids: list[str]
-    usar_ia: bool = True
-    incluir_fracos: bool = False
-
-
-@app.post("/api/gerar-lote")
-def gerar_lote(lote: LoteEntrada):
-    def executar():
-        for i, lead_id in enumerate(lote.ids, 1):
-            if tarefa.parar:
-                tarefa.escrever("⏹ Geração interrompida.")
-                break
-            lead = db.buscar(lead_id)
-            nota = qualidade.avaliar(lead or {})
-            if lead and nota["nivel"] == "fraco" and not lote.incluir_fracos:
-                tarefa.escrever(f"⏭ {lead['nome']}: poucos dados ({nota['pontos']}/{nota['maximo']}), pulado. Falta: {', '.join(nota['falta'][:3])}")
-                continue
-            try:
-                gerador.gerar_site(lead_id, lote.usar_ia, log=tarefa.escrever)
-            except Exception as erro:
-                tarefa.escrever(f"  erro no lead {lead_id}: {erro}")
-        tarefa.escrever(f"🏁 Fim da geração ({len(lote.ids)} leads).")
-    tarefa.iniciar("geracao", executar)
-    return {"ok": True}
-
-
-@app.post("/api/nichos/{nicho_id}/refazer-sites")
-def refazer_sites_do_nicho(nicho_id: str):
-    """Refaz todos os sites já gerados do nicho (ex.: depois de trocar o modelo). Reaproveita os textos."""
-    leads = [l for l in db.listar(nicho=nicho_id) if l.get("slug")]
-    if not leads:
-        raise HTTPException(400, "Nenhum site gerado neste nicho ainda.")
-
-    def executar():
-        for i, lead in enumerate(leads, 1):
-            if tarefa.parar:
-                tarefa.escrever("⏹ Interrompido.")
-                break
-            try:
-                gerador.gerar_site(lead["id"], usar_ia=False, log=tarefa.escrever)
-            except Exception as erro:
-                tarefa.escrever(f"  erro em {lead['nome']}: {erro}")
-        tarefa.escrever(f"🏁 {len(leads)} sites refeitos. Publique no Netlify para atualizar os links.")
-    tarefa.iniciar("refazer", executar)
-    return {"ok": True, "total": len(leads)}
-
-
-@app.post("/api/publicar")
-def publicar():
-    if not deploy.netlify_configurado():
-        raise HTTPException(400, "Preencha NETLIFY_TOKEN e NETLIFY_SITE_ID no arquivo .env e reinicie o painel.")
-    tarefa.iniciar("publicacao", lambda: deploy.publicar(log=tarefa.escrever))
-    return {"ok": True}
+# -------------------------------- Pacote -----------------------------------
+@app.get("/api/leads/{lead_id}/pacote")
+def ver_pacote(lead_id: str, formato: str = "md", baixar: bool = False):
+    """O pacote do cliente em Markdown (para ler e copiar) ou JSON (para outra ferramenta)."""
+    lead = _lead_ou_404(lead_id)
+    dados = pacote.montar(lead)
+    nome = f"pacote-{re.sub(r'[^a-z0-9]+', '-', lead['nome'].lower()).strip('-')[:50] or 'lead'}"
+    if formato == "json":
+        if baixar:
+            import json
+            return PlainTextResponse(json.dumps(dados, ensure_ascii=False, indent=2), media_type="application/json",
+                                     headers={"Content-Disposition": f'attachment; filename="{nome}.json"'})
+        return dados
+    texto = pacote.para_markdown(dados)
+    if baixar:
+        return PlainTextResponse(texto, media_type="text/markdown; charset=utf-8",
+                                 headers={"Content-Disposition": f'attachment; filename="{nome}.md"'})
+    return {"texto": texto}
 
 
 @app.get("/api/exportar")
-def exportar_leads(formato: str = "xlsx", nicho: str = "", situacao: str = ""):
-    leads = db.listar(nicho or None, None, situacao or None)
+def exportar_leads(formato: str = "xlsx", nicho: str = "", estado: str = "ativo", classe: str = ""):
+    leads = db.listar(nicho or None, None, estado or None, classe or None)
     nome = f"leads_{nicho or 'todos'}"
     caminho = exportar.para_json(leads, nome) if formato == "json" else exportar.para_excel(leads, nome)
-    return FileResponse(caminho, filename=caminho.rsplit("/", 1)[-1].rsplit("\\", 1)[-1])
+    return FileResponse(caminho, filename=Path(caminho).name)
 
 
-# ------------------------------ Arquivos ------------------------------------
-app.mount("/demos", StaticFiles(directory=config.PASTA_SITES, html=True), name="demos")
-app.mount("/painel", StaticFiles(directory=config.RAIZ / "painel"), name="painel")
+# ------------------------------ Painel (React) ------------------------------
+PAGINA_SEM_BUILD = """<!doctype html><meta charset="utf-8"><title>Prospecta</title>
+<body style="font-family:system-ui;max-width:640px;margin:48px auto;padding:0 16px;line-height:1.5">
+<h1>O painel ainda não foi montado</h1>
+<p>A API está funcionando, mas falta gerar o painel em React. No terminal, na pasta do projeto:</p>
+<pre style="background:#f2f4f7;padding:12px;border-radius:8px">cd painel
+npm install
+npm run build</pre>
+<p>Depois recarregue esta página. Para programar o painel com recarga automática, use
+<code>npm run dev</code> e abra o endereço que ele mostrar.</p></body>"""
+
+if (config.PASTA_PAINEL / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=config.PASTA_PAINEL / "assets"), name="assets")
 
 
-@app.get("/")
-def inicio():
-    return FileResponse(config.RAIZ / "painel" / "index.html")
+@app.get("/{caminho:path}", include_in_schema=False)
+def painel(caminho: str):
+    """Qualquer endereço que não é da API abre o painel (o React cuida das telas)."""
+    if caminho.startswith("api/"):
+        raise HTTPException(404, "Rota da API não encontrada")
+    arquivo = (config.PASTA_PAINEL / caminho).resolve()
+    if caminho and arquivo.is_file() and config.PASTA_PAINEL.resolve() in arquivo.parents:
+        return FileResponse(arquivo)
+    indice = config.PASTA_PAINEL / "index.html"
+    if indice.exists():
+        return FileResponse(indice, headers={"Cache-Control": "no-store"})
+    return HTMLResponse(PAGINA_SEM_BUILD)
 
 
 if __name__ == "__main__":
-    print("\n  Painel aberto em: http://localhost:8000\n")
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    print(f"\n  Painel aberto em: http://localhost:{config.PORTA}")
+    if config.HOST not in ("127.0.0.1", "localhost"):
+        print(f"  Também aceita conexões em {config.HOST} (VPN/rede). Não deixe aberto na internet.")
+    print()
+    uvicorn.run(app, host=config.HOST, port=config.PORTA)

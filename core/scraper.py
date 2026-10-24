@@ -1,39 +1,42 @@
 """
 Bot de busca no Google Maps (Playwright).
 
-Evolução do script original: em vez de "Igreja Evangélica" fixo, recebe
-o nicho e as regiões escolhidos no painel. Para cada local ele:
+Recebe o nicho e as regiões escolhidos no painel. Para cada local ele:
   1. pula se já está no banco (pelo ID do Maps);
-  2. pega nome, categoria, endereço, telefone, site, nota, avaliações, horário e foto;
-  3. classifica o site (sem site / só rede social / site fraco / fora do ar / próprio);
-  4. procura Instagram, WhatsApp e e-mail;
-  5. logo: foto de perfil do Instagram (opcional) ou, se não tiver, a foto de
-     perfil da própria empresa no Google (quando parece mesmo uma logo);
-  6. salva no banco.
+  2. pega nome, categoria, endereço, telefone, site, nota, avaliações, horário e descrição;
+  3. junta os links de redes sociais que aparecem na ficha;
+  4. vê se o negócio está fechado e se tem botão de agendar ou de pedido online;
+  5. classifica o site e, se existir, abre para ver se está no ar, tem HTTPS e versão de celular;
+  6. lê as avaliações mais recentes (só para classificar: dores, respostas do dono);
+  7. pega os links das fotos e da logo (para o pacote do site; nada é baixado);
+  8. lê no Instagram o total de posts e de seguidores (sem login);
+  9. salva no banco e manda analisar (nota, classe e oportunidades).
 
 ATENÇÃO: o Google muda o HTML do Maps de vez em quando. Se algum campo parar
 de vir, o problema quase sempre é um seletor daqui. Eles estão todos juntos
-em SELETORES para facilitar a manutenção.
+em SELETORES para facilitar a manutenção. Use o botão "Diagnóstico" do painel
+para ver o que o bot está enxergando.
 """
 import asyncio
-import io
 import random
 import re
+import time
+from hashlib import md5
 
-from PIL import Image
 from playwright.async_api import async_playwright
 
 from . import db
 from .cores import parece_logo
-from .ia import escolher_fotos, ia_disponivel
 from .limpeza import (
-    achar_instagram, achar_whatsapp_em_link, classificar_site, coordenadas, eh_celular,
-    id_do_maps, limpar_texto, normalizar_whatsapp, numero_br, slugify, SITUACOES,
+    achar_redes, achar_whatsapp_em_link, classificar_site, coordenadas, dias_atras,
+    eh_celular, id_do_maps, juntar_redes, ler_resumo_instagram, limpar_texto, normalizar_whatsapp,
+    numero_br, slugify, SITUACOES,
 )
 
 SELETORES = {
     "feed": 'div[role="feed"]',
     "links_locais": 'a[href*="/maps/place/"]',
+    "painel": 'div[role="main"]',
     "nome": "h1",
     "categoria": 'button[jsaction*="category"]',
     "endereco": 'button[data-item-id="address"]',
@@ -47,15 +50,17 @@ SELETORES = {
         'img[src*="googleusercontent.com/p/"]',
         'img[src*="googleusercontent.com/gps-cs"]',
     ],
-    "instagram": 'a[href*="instagram.com"]',
     # Descrição escrita pelo dono ("Do proprietário" / resumo do Google)
     "descricao": ['div.PYvSYb', 'div[aria-label^="Sobre"] .PYvSYb', 'div.WeS02d div.PYvSYb'],
     # Aba de avaliações e cada avaliação dentro dela
     "aba_avaliacoes": 'button[role="tab"][aria-label*="Avalia"], button[role="tab"]:has-text("Avaliações")',
     "aba_visao_geral": 'button[role="tab"][aria-label^="Visão geral"], button[role="tab"]:has-text("Visão geral")',
+    "ordenar_avaliacoes": 'button[aria-label*="Classificar"], button[aria-label*="Ordenar"], button[data-value="Classificar"]',
+    "mais_recentes": 'div[role="menuitemradio"]:has-text("Mais recentes"), [role="menuitem"]:has-text("Mais recentes")',
     "avaliacao": 'div[data-review-id][aria-label]',
     "avaliacao_estrelas": 'span[role="img"][aria-label*="estrela"]',
     "avaliacao_texto": 'span.wiI7pd',
+    "avaliacao_data": 'span.rsqaWe',
     "ver_mais": 'button[aria-label="Ver mais"], button.w8nwRe',
     # Botão que abre a galeria de fotos
     "abrir_galeria": 'button[jsaction*="heroHeaderImage"]',
@@ -65,9 +70,16 @@ SELETORES = {
     "autor_foto": 'h1 a[href*="/maps/contrib/"]',
 }
 
-MAX_FOTOS = 8
-MAX_CANDIDATAS = 20  # quantas fotos da galeria a IA avalia para escolher as MAX_FOTOS
-MAX_DEPOIMENTOS = 5
+# Textos que o bot procura na ficha (em português e inglês)
+TEXTOS_FECHADO = {"permanentemente": ("Fechado permanentemente", "Permanently closed"),
+                  "temporariamente": ("Fechado temporariamente", "Temporarily closed")}
+TEXTOS_AGENDAR = ("agendar", "reservar", "fazer uma reserva", "marcar horário", "marcar consulta")
+TEXTOS_PEDIDO = ("fazer pedido", "pedir on-line", "pedir online", "peça on-line", "pedido on-line", "cardápio",
+                 "order online")
+TEXTOS_RESPOSTA = ("resposta do proprietário", "response from the owner")
+
+MAX_FOTOS = 10
+MAX_AVALIACOES = 12
 
 EMAIL_REGEX = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 EMAILS_IGNORADOS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", "wixpress.com",
@@ -121,6 +133,16 @@ JS_FOTOS = r"""() => {
   return urls.filter(u => /googleusercontent\.com\/(p\/|gps-cs|gps-proxy|geougc|grass-cs)/.test(u));
 }"""
 
+# Texto visível da ficha + todos os links e rótulos de botões, numa ida só ao navegador
+JS_FICHA = r"""() => {
+  const painel = document.querySelector('div[role="main"]') || document.body;
+  const links = [...painel.querySelectorAll('a[href]')].map(a => a.href);
+  const rotulos = [...painel.querySelectorAll('a, button')]
+    .map(e => ((e.getAttribute('aria-label') || '') + ' ' + (e.innerText || '')).trim().toLowerCase())
+    .filter(t => t);
+  return {texto: (painel.innerText || '').slice(0, 20000), links, rotulos, achou_painel: !!document.querySelector('div[role="main"]')};
+}"""
+
 
 def _juntar_fotos(atuais: list, novas: list, limite=MAX_FOTOS) -> list:
     """Junta sem repetir: a mesma foto vem com tamanhos diferentes na URL."""
@@ -131,6 +153,26 @@ def _juntar_fotos(atuais: list, novas: list, limite=MAX_FOTOS) -> list:
             vistas.add(base)
             atuais.append(_foto_grande(url))
     return atuais
+
+
+def sinais_da_ficha(ficha: dict) -> dict:
+    """
+    Lê o texto e os botões da ficha e devolve os sinais que interessam.
+    Quando o bot não enxergou o painel, os sinais ficam None ("não sei"),
+    para a nota não punir o lead por uma falha do bot.
+    """
+    if not ficha.get("achou_painel"):
+        return {"fechado": None, "tem_agendar": None, "tem_pedido": None}
+    texto = ficha.get("texto", "")
+    fechado = None
+    for tipo, frases in TEXTOS_FECHADO.items():
+        if any(f in texto for f in frases):
+            fechado = tipo
+    rotulos = ficha.get("rotulos", [])
+    links = " ".join(ficha.get("links", [])).lower()
+    tem_agendar = any(any(t in r for t in TEXTOS_AGENDAR) for r in rotulos)
+    tem_pedido = any(any(t in r for t in TEXTOS_PEDIDO) for r in rotulos) or "ifood.com.br" in links
+    return {"fechado": fechado, "tem_agendar": tem_agendar, "tem_pedido": tem_pedido}
 
 
 async def _rolar_galeria(page):
@@ -162,22 +204,21 @@ async def _avatar_do_dono(page, nome: str) -> str:
 
 
 async def _logo_do_google(context, url: str, log) -> str:
-    """Baixa o avatar da empresa e só aceita se parecer logo (e não selfie ou fachada)."""
+    """Confere o avatar da empresa e só aceita se parecer logo (e não selfie ou fachada)."""
     try:
         resposta = await context.request.get(url, timeout=10000)
         if resposta.ok and parece_logo(await resposta.body()):
             log("    logo encontrada no perfil do Google")
             return url
-        log("    foto de perfil do Google não parece logo: ignorada")
     except Exception:
         pass
     return ""
 
 
-async def _coletar_galeria(page, fotos: list, nome: str, log) -> tuple:
+async def _coletar_galeria(page, fotos: list, nome: str) -> tuple:
     """
-    Abre a galeria de fotos do local e pega até MAX_CANDIDATAS (melhor esforço).
-    Devolve (fotos, avatar da empresa no Google ou "").
+    Abre a galeria de fotos do local e pega os links de até MAX_FOTOS (melhor esforço).
+    Devolve (fotos, avatar da empresa no Google ou "", conseguiu_abrir).
 
     A ficha mostra só algumas fotos da galeria, mas com outro ID na URL
     (grass-cs na ficha, gps-cs-s na galeria), então juntar as duas listas
@@ -196,97 +237,82 @@ async def _coletar_galeria(page, fotos: list, nome: str, log) -> tuple:
                 await aba.first.evaluate("e => e.click()")
                 await page.wait_for_timeout(1500)
         if await botao.count() == 0:
-            return da_ficha, avatar
+            return da_ficha, avatar, False
         await botao.first.evaluate("e => e.click()")
         await page.wait_for_timeout(2500)
         avatar = await _avatar_do_dono(page, nome)
-        for _ in range(10):  # rola a galeria para carregar mais miniaturas
+        for _ in range(4):  # rola a galeria para carregar mais miniaturas
             # A capa da ficha (grass-cs) continua no HTML atrás da galeria: ignora
             novas = [u for u in await page.evaluate(JS_FOTOS) if "/grass-cs/" not in u]
-            fotos = _juntar_fotos(fotos, novas, MAX_CANDIDATAS)
-            if len(fotos) >= MAX_CANDIDATAS:
+            fotos = _juntar_fotos(fotos, novas, MAX_FOTOS)
+            if len(fotos) >= MAX_FOTOS:
                 break
             await _rolar_galeria(page)
             await page.wait_for_timeout(1200)
     except Exception:
-        pass
-    return fotos or da_ficha, avatar
+        return fotos or da_ficha, avatar, False
+    return fotos or da_ficha, avatar, True
 
 
-async def _selecionar_fotos(context, fotos: list, lead: dict, nicho: dict, log) -> list:
+async def _ler_avaliacoes(page, log) -> list:
     """
-    A IA olha as fotos candidatas e fica só com as que servem para o site
-    (sem selfie, produto, foto escura...), com a melhor capa primeiro.
-    Sem IA, ou se ela falhar, ficam as primeiras MAX_FOTOS como antes.
+    Abre a aba de avaliações, tenta ordenar pelas mais recentes e lê até MAX_AVALIACOES.
+    Serve só para classificar: estrelas, texto, se o dono respondeu e há quanto tempo.
+    Nenhum nome de cliente é guardado.
     """
-    if not fotos or not ia_disponivel():
-        return fotos[:MAX_FOTOS]
-    imagens, orientacoes, urls = [], [], []
-    for url in fotos:
-        try:  # versão pequena: gasta menos token e chega rápido
-            resposta = await context.request.get(re.sub(r"=[^/]*$", "", url) + "=s512", timeout=10000)
-            img = Image.open(io.BytesIO(await resposta.body())).convert("RGB")
-        except Exception:
-            continue
-        saida = io.BytesIO()
-        img.save(saida, "JPEG", quality=70)
-        imagens.append(saida.getvalue())
-        orientacoes.append("horizontal" if img.width > img.height * 1.1 else
-                           "vertical" if img.height > img.width * 1.1 else "quadrada")
-        urls.append(url)
-    try:
-        ordem = await asyncio.to_thread(escolher_fotos, imagens, orientacoes, lead, nicho, log)
-    except Exception as erro:
-        log(f"    IA não escolheu as fotos ({str(erro)[:80]}): ficam as primeiras")
-        return fotos[:MAX_FOTOS]
-    return [urls[i] for i in ordem][:MAX_FOTOS]
-
-
-async def _coletar_avaliacoes(page, log) -> list:
-    """
-    Abre a aba de avaliações e pega as melhores com texto (4 ou 5 estrelas).
-    Só o primeiro nome do autor vai para o site.
-    """
-    depoimentos = []
+    avaliacoes = []
     try:
         aba = page.locator(SELETORES["aba_avaliacoes"])
         if await aba.count() == 0:
             return []
         await aba.first.click(timeout=4000)
         await page.wait_for_timeout(2500)
-        # Abre os textos cortados ("Mais")
+        try:  # mais recentes primeiro (melhor esforço: se não achar, fica a ordem do Google)
+            ordenar = page.locator(SELETORES["ordenar_avaliacoes"])
+            if await ordenar.count():
+                await ordenar.first.click(timeout=2000)
+                await page.wait_for_timeout(800)
+                opcao = page.locator(SELETORES["mais_recentes"])
+                if await opcao.count():
+                    await opcao.first.click(timeout=2000)
+                    await page.wait_for_timeout(2000)
+        except Exception:
+            pass
         botoes = page.locator(SELETORES["ver_mais"])
-        for i in range(min(await botoes.count(), 8)):
+        for i in range(min(await botoes.count(), MAX_AVALIACOES)):
             try:
-                await botoes.nth(i).click(timeout=1000)
+                await botoes.nth(i).click(timeout=800)
             except Exception:
                 pass
         itens = page.locator(SELETORES["avaliacao"])
         vistos = set()
-        for i in range(min(await itens.count(), 20)):
+        for i in range(min(await itens.count(), MAX_AVALIACOES * 2)):
             item = itens.nth(i)
-            autor = (await item.get_attribute("aria-label") or "").strip()
-            if autor in vistos:
+            chave = await item.get_attribute("data-review-id")
+            if chave in vistos:
                 continue
-            vistos.add(autor)
+            vistos.add(chave)
             estrelas_el = item.locator(SELETORES["avaliacao_estrelas"])
             estrelas = numero_br(await estrelas_el.first.get_attribute("aria-label")) if await estrelas_el.count() else None
             texto_el = item.locator(SELETORES["avaliacao_texto"])
             texto = limpar_texto(await texto_el.first.inner_text()) if await texto_el.count() else ""
-            if not texto or len(texto) < 40 or (estrelas and estrelas < 4):
-                continue
-            depoimentos.append({
-                "autor": autor.split()[0].title() if autor else "Cliente",
-                "estrelas": int(estrelas or 5),
-                "texto": texto[:420],
+            data_el = item.locator(SELETORES["avaliacao_data"])
+            quando = limpar_texto(await data_el.first.inner_text()) if await data_el.count() else ""
+            conteudo = (await item.inner_text()).lower()
+            avaliacoes.append({
+                "estrelas": int(estrelas) if estrelas else None,
+                "texto": texto[:500],
+                "respondida": any(t in conteudo for t in TEXTOS_RESPOSTA),
+                "quando": quando,
+                "dias": dias_atras(quando),
             })
-            if len(depoimentos) >= MAX_DEPOIMENTOS:
+            if len(avaliacoes) >= MAX_AVALIACOES:
                 break
-        if depoimentos:
-            log(f"    {len(depoimentos)} avaliações com texto")
+        if avaliacoes:
+            log(f"    {len(avaliacoes)} avaliações lidas")
     except Exception:
         pass
-    return depoimentos
+    return avaliacoes
 
 
 async def _aceitar_cookies(page):
@@ -300,46 +326,56 @@ async def _aceitar_cookies(page):
                 return
 
 
+def auditar_html(html: str, url_final: str, tempo_ms: int) -> dict:
+    """O que dá para saber do site só pelo HTML: HTTPS, versão de celular, contatos e redes."""
+    emails = {e for e in EMAIL_REGEX.findall(html) if not e.lower().endswith(EMAILS_IGNORADOS)}
+    return {
+        "online": True,
+        "https": url_final.lower().startswith("https://"),
+        "celular": bool(re.search(r'<meta[^>]+name=["\']viewport["\']', html, re.I)),
+        "whatsapp_no_site": bool(achar_whatsapp_em_link(html)),
+        "tempo_ms": tempo_ms,
+        "lento": tempo_ms > 4000,
+        "email": ", ".join(sorted(emails)[:3]),
+        "whatsapp": achar_whatsapp_em_link(html),
+        "redes": achar_redes(html),
+    }
+
+
 async def _checar_site(context, url: str, log) -> dict:
     """
-    Abre o site informado no Maps e devolve:
-    online (bool), e-mails, Instagram e WhatsApp encontrados no HTML.
-    Usa requisição simples (sem renderizar a página), é rápido.
+    Abre o site informado no Maps (requisição simples, sem renderizar a página)
+    e devolve a auditoria. online=False se não abrir.
     """
-    resultado = {"online": False, "email": "", "instagram": "", "whatsapp": ""}
+    inicio = time.monotonic()
     try:
         resposta = await context.request.get(url, timeout=12000, max_redirects=5)
         if resposta.status >= 400:
             log(f"    site respondeu {resposta.status}: considerado fora do ar")
-            return resultado
+            return {"online": False}
         html = await resposta.text()
     except Exception:
         log("    site não abriu: considerado fora do ar")
-        return resultado
-
-    resultado["online"] = True
-    emails = {e for e in EMAIL_REGEX.findall(html) if not e.lower().endswith(EMAILS_IGNORADOS)}
-    resultado["email"] = ", ".join(sorted(emails)[:3])
-    resultado["instagram"] = achar_instagram(html)
-    resultado["whatsapp"] = achar_whatsapp_em_link(html)
-    return resultado
+        return {"online": False}
+    return auditar_html(html, resposta.url, int((time.monotonic() - inicio) * 1000))
 
 
-async def _logo_do_instagram(context, url_instagram: str, log) -> dict:
+async def _ler_instagram(context, url_instagram: str, log) -> dict:
     """
-    Tenta pegar a foto de perfil (og:image) e a bio do Instagram.
+    Pega a foto de perfil (og:image) e o resumo do perfil (seguidores e total de posts).
     É "melhor esforço": o Instagram às vezes pede login e aí não vem nada.
-    Faça poucas consultas por vez para não ter o IP bloqueado.
+    Uma visita por lead, sem login, para não ter o IP bloqueado.
     """
-    dados = {"logo_url": "", "bio": ""}
+    dados = {"logo_url": "", "seguidores": None, "posts": None}
     page = await context.new_page()
     try:
         await page.goto(url_instagram, timeout=15000, wait_until="domcontentloaded")
         await page.wait_for_timeout(1500)
         dados["logo_url"] = await _atributo(page, 'meta[property="og:image"]', "content")
-        dados["bio"] = limpar_texto(await _atributo(page, 'meta[property="og:description"]', "content"))
-        if dados["logo_url"]:
-            log("    logo encontrada no Instagram")
+        resumo = ler_resumo_instagram(await _atributo(page, 'meta[property="og:description"]', "content"))
+        dados.update(resumo)
+        if resumo["posts"] is not None:
+            log(f"    Instagram: {resumo['posts']} posts, {resumo['seguidores']} seguidores")
     except Exception:
         log("    Instagram não abriu (normal às vezes)")
     finally:
@@ -376,7 +412,7 @@ async def _coletar_local(context, page, url_local, nicho, regiao, opcoes, log):
         rotulo_horario = re.sub(r"\.?\s*(Ocultar|Mostrar).*$", "", rotulo_horario)
         horario = [limpar_texto(p) for p in re.split(r"[;.]\s*", rotulo_horario) if limpar_texto(p)]
 
-    # Fotos: a principal (topo da ficha) primeiro, depois as outras que já aparecem
+    # Fotos que já aparecem na ficha (a galeria completa vem depois)
     fotos = []
     for seletor in SELETORES["foto"]:
         src = await _atributo(page, seletor, "src")
@@ -385,20 +421,18 @@ async def _coletar_local(context, page, url_local, nicho, regiao, opcoes, log):
             break
     fotos = _juntar_fotos(fotos, await page.evaluate(JS_FOTOS))
 
-    # Descrição do proprietário
     descricao = ""
     for seletor in SELETORES["descricao"]:
         descricao = await _texto(page, seletor)
         if descricao:
             break
 
-    # Instagram que aparece na própria ficha do Maps
-    instagram = achar_instagram(" ".join(
-        await page.locator(SELETORES["instagram"]).evaluate_all("els => els.map(e => e.href)")
-    ))
+    # Texto, links e botões da ficha: redes sociais e sinais (fechado, agendar, pedido)
+    ficha = await page.evaluate(JS_FICHA)
+    sinais = sinais_da_ficha(ficha)
+    redes_maps = achar_redes(" ".join([site or "", *ficha.get("links", [])]))
 
     lat, lng = coordenadas(page.url) if coordenadas(page.url)[0] else coordenadas(url_local)
-
     lead = {
         "id": id_do_maps(url_local) or id_do_maps(page.url),
         "nicho": nicho["id"],
@@ -408,67 +442,62 @@ async def _coletar_local(context, page, url_local, nicho, regiao, opcoes, log):
         "endereco": await _texto(page, SELETORES["endereco"]),
         "telefone": telefone,
         "site": site or "",
-        "nota": nota if isinstance(nota, float) else None,
-        "avaliacoes": avaliacoes,
+        "nota": nota if isinstance(nota, float) else (float(nota) if isinstance(nota, int) else None),
+        "avaliacoes": avaliacoes if avaliacoes is not None else (0 if nota is None else None),
         "horario": horario,
         "fotos": fotos,
         "descricao": descricao,
         "lat": lat,
         "lng": lng,
         "maps_url": url_local.split("?")[0] if url_local.startswith("http") else url_local,
-        "status": "novo",
     }
 
-    # ---- Classificação do site ---------------------------------------------
+    # ---- Site --------------------------------------------------------------
     situacao = classificar_site(site)
     whatsapp = achar_whatsapp_em_link(site)
-    if situacao == "so_rede_social":
-        instagram = instagram or achar_instagram(site)
-    elif situacao in ("site_proprio", "site_fraco"):
-        checagem = await _checar_site(context, site, log)
-        if not checagem["online"]:
+    redes_site = {}
+    if situacao in ("site_proprio", "site_fraco"):
+        auditoria = await _checar_site(context, site, log)
+        if not auditoria.get("online"):
             situacao = "fora_do_ar"
-        lead["email"] = checagem["email"]
-        instagram = instagram or checagem["instagram"]
-        whatsapp = whatsapp or checagem["whatsapp"]
+        else:
+            lead["email"] = auditoria.pop("email", "")
+            whatsapp = whatsapp or auditoria.pop("whatsapp", "")
+            redes_site = auditoria.pop("redes", {})
+        sinais["site"] = auditoria
 
     # WhatsApp: link wa.me tem prioridade; senão, o telefone se for celular
     numero_maps = normalizar_whatsapp(telefone_attr.replace("phone:tel:", "")) or normalizar_whatsapp(telefone)
     if not whatsapp and eh_celular(numero_maps):
         whatsapp = numero_maps
 
-    lead.update({"situacao_site": situacao, "instagram": instagram, "whatsapp": whatsapp})
+    redes = juntar_redes(redes_maps, redes_site)
+    origem = [o for o, r in (("maps", redes_maps), ("site", redes_site)) if r]
+    lead.update({"situacao_site": situacao, "whatsapp": whatsapp, "redes": redes,
+                 "redes_origem": ", ".join(origem), "instagram": redes.get("instagram", "")})
 
-    # Sem site próprio = lead. Quem tem site é salvo como "descartado" só
-    # para o bot não visitar de novo nas próximas buscas.
-    if situacao == "site_proprio":
-        lead["status"] = "descartado"
-    else:
-        # Só gasta tempo com galeria/avaliações em quem é lead de verdade
-        if opcoes.get("coletar_extras", True):
-            lead["depoimentos"] = await _coletar_avaliacoes(page, log)
-            lead["fotos"], avatar_google = await _coletar_galeria(page, lead["fotos"], nome, log)
-            lead["fotos"] = await _selecionar_fotos(context, lead["fotos"], lead, nicho, log)
-            if len(lead["fotos"]) > 1:
-                log(f"    {len(lead['fotos'])} fotos")
-        else:
-            avatar_google = ""
-        if instagram and opcoes.get("buscar_instagram"):
-            extra = await _logo_do_instagram(context, instagram, log)
-            lead["logo_url"] = extra["logo_url"]
-            if extra["bio"]:
-                lead["observacoes"] = f"Bio do Instagram: {extra['bio']}"
-        # Sem logo do Instagram: tenta a foto de perfil da empresa no Google
+    # ---- Coleta extra (não vale a pena para quem está fechado) --------------
+    if not sinais.get("fechado") and opcoes.get("coletar_extras", True):
+        lead["avaliacoes_lidas"] = await _ler_avaliacoes(page, log)
+        lead["fotos"], avatar_google, abriu = await _coletar_galeria(page, lead["fotos"], nome)
+        if abriu:
+            # Menos fotos do que o limite = o negócio tem só essas fotos
+            sinais["total_fotos"] = len(lead["fotos"]) if len(lead["fotos"]) < MAX_FOTOS else None
+        if lead["instagram"] and opcoes.get("buscar_instagram", True):
+            insta = await _ler_instagram(context, lead["instagram"], log)
+            lead["instagram_seguidores"], lead["instagram_posts"] = insta["seguidores"], insta["posts"]
+            if insta["logo_url"]:
+                lead["logo_url"] = insta["logo_url"]
         if not lead.get("logo_url") and avatar_google:
             lead["logo_url"] = await _logo_do_google(context, avatar_google, log)
+    lead["sinais"] = sinais
 
     if not lead["id"]:
-        from hashlib import md5
         lead["id"] = "h_" + md5(f"{nome}|{lead['endereco']}".encode()).hexdigest()[:16]
     return lead
 
 
-async def _buscar_regiao(context, page, nicho, regiao, opcoes, log, deve_parar):
+async def _buscar_regiao(context, page, nicho, regiao, opcoes, log, deve_parar, ao_salvar):
     termo = f"{nicho['termo_busca']} em {regiao}"
     log(f"🔎 Buscando: {termo}")
     limite = int(opcoes.get("limite", 10))
@@ -524,23 +553,27 @@ async def _buscar_regiao(context, page, nicho, regiao, opcoes, log, deve_parar):
         except Exception as erro:
             log(f"  [{i}/{len(urls)}] erro: {str(erro)[:80]}")
             continue
-        if not lead:
-            continue
-        if db.existe(lead["id"]):
+        if not lead or db.existe(lead["id"]):
             continue
         db.salvar(lead)
         salvos += 1
-        marca = "✅ LEAD" if lead["situacao_site"] != "site_proprio" else "— tem site"
-        log(f"  [{i}/{len(urls)}] {lead['nome']} · {SITUACOES[lead['situacao_site']]} {marca}")
+        log(f"  [{i}/{len(urls)}] {lead['nome']} · {SITUACOES[lead['situacao_site']]}")
+        await ao_salvar(lead["id"])
         await _pausa()
     return salvos
 
 
-async def rodar_busca(nicho: dict, regioes: list, opcoes: dict, log, deve_parar=lambda: False):
+async def rodar_busca(nicho: dict, regioes: list, opcoes: dict, log, deve_parar=lambda: False,
+                      ao_salvar=None):
     """
     Função principal do bot. O painel chama esta função.
-    `log` recebe cada linha de progresso; `deve_parar` permite o botão "Parar".
+    `log` recebe cada linha de progresso; `deve_parar` permite o botão "Parar";
+    `ao_salvar(lead_id)` (async) roda depois de cada lead salvo, para analisar na hora.
     """
+    async def nada(_):
+        return None
+
+    ao_salvar = ao_salvar or nada
     db.iniciar()
     total = 0
     async with async_playwright() as p:
@@ -553,18 +586,17 @@ async def rodar_busca(nicho: dict, regioes: list, opcoes: dict, log, deve_parar=
                 if deve_parar():
                     log("⏹ Busca interrompida.")
                     break
-                total += await _buscar_regiao(context, page, nicho, regiao, opcoes, log, deve_parar)
+                total += await _buscar_regiao(context, page, nicho, regiao, opcoes, log, deve_parar, ao_salvar)
         finally:
             await navegador.close()
-    log(f"🏁 Fim. {total} locais novos salvos no banco.")
+    log(f"🏁 Fim. {total} locais novos salvos.")
     return total
 
 
 async def recoletar_lead(lead: dict, nicho: dict, log=print) -> dict:
     """
-    Abre de novo a ficha de UM lead no Maps e atualiza fotos, avaliações,
-    descrição, nota e horário. Útil para leads coletados antes de uma melhoria
-    do bot. Não mexe em status, textos nem site gerado.
+    Abre de novo a ficha de UM lead no Maps e atualiza os dados da coleta.
+    Não mexe no CRM (etapa, histórico, próximo passo).
     """
     if not lead.get("maps_url"):
         raise ValueError("Esse lead não tem o link do Maps salvo.")
@@ -575,29 +607,31 @@ async def recoletar_lead(lead: dict, nicho: dict, log=print) -> dict:
         page = await context.new_page()
         try:
             novo = await _coletar_local(context, page, lead["maps_url"], nicho, lead.get("regiao") or "",
-                                        {"coletar_extras": True, "buscar_instagram": not lead.get("logo_url")}, log)
+                                        {"coletar_extras": True, "buscar_instagram": True}, log)
         finally:
             await navegador.close()
     if not novo:
         raise ValueError("Não consegui ler a ficha no Maps (a página mudou ou bloqueou).")
     campos = {}
-    for campo in ("fotos", "depoimentos", "descricao", "nota", "avaliacoes", "horario", "categoria", "endereco"):
-        if novo.get(campo):
+    for campo in ("fotos", "descricao", "nota", "avaliacoes", "horario", "categoria", "endereco", "telefone",
+                  "site", "situacao_site", "avaliacoes_lidas", "sinais", "instagram_seguidores", "instagram_posts"):
+        if novo.get(campo) not in (None, "", []):
             campos[campo] = novo[campo]
-    for campo in ("logo_url", "instagram", "whatsapp"):  # só preenche se antes estava vazio
+    campos["redes"] = juntar_redes(novo.get("redes"), lead.get("redes"))
+    for campo in ("logo_url", "instagram", "whatsapp", "email"):  # só preenche se antes estava vazio
         if novo.get(campo) and not lead.get(campo):
             campos[campo] = novo[campo]
     db.atualizar(lead["id"], campos)
-    log(f"  ✅ {lead['nome']}: {len(campos.get('fotos', []))} fotos, {len(campos.get('depoimentos', []))} avaliações")
+    log(f"  ✅ {lead['nome']}: dados do Maps atualizados")
     return db.buscar(lead["id"])
 
 
-# Também dá pra rodar sem o painel:  python -m core.scraper pizzarias "Taguatinga, DF"
+# Também dá pra rodar sem o painel:  python -m core.scraper barbearias "Taguatinga, DF"
 if __name__ == "__main__":
     import sys
     from .nichos import carregar_nicho
 
-    nicho_escolhido = carregar_nicho(sys.argv[1] if len(sys.argv) > 1 else "igrejas")
+    nicho_escolhido = carregar_nicho(sys.argv[1] if len(sys.argv) > 1 else "barbearias")
     regioes_escolhidas = sys.argv[2:] or ["Taguatinga, DF"]
     asyncio.run(rodar_busca(nicho_escolhido, regioes_escolhidas,
                             {"limite": 5, "headless": False}, print))

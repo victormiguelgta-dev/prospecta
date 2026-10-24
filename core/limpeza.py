@@ -83,8 +83,94 @@ def classificar_site(url: str) -> str:
     return "site_proprio"
 
 
-def eh_lead(situacao: str) -> bool:
-    return situacao != "site_proprio"
+# ---------------------------------------------------------------------------
+# Redes sociais
+# ---------------------------------------------------------------------------
+# Cada rede: (nome no painel, regex que pega o perfil, caminhos que não são perfil)
+_REDES = {
+    "instagram": (r"instagram\.com/([A-Za-z0-9_.]{2,30})", {"p", "reel", "reels", "explore", "accounts",
+                                                             "stories", "tv", "about", "developer"}),
+    "facebook": (r"(?:facebook|fb)\.com/([A-Za-z0-9_.\-]{2,80}(?:/[0-9]{5,})?)", {
+        "sharer", "sharer.php", "share", "tr", "plugins", "dialog", "login", "groups", "events",
+        "watch", "photo", "photo.php", "story.php", "permalink.php", "help", "policies", "privacy", "pages"}),
+    "tiktok": (r"tiktok\.com/(@[A-Za-z0-9_.]{2,30})", set()),
+    "youtube": (r"youtube\.com/((?:@|channel/|c/|user/)[A-Za-z0-9_.\-]{2,80})", set()),
+    "linkedin": (r"linkedin\.com/((?:company|in|school)/[A-Za-z0-9_.\-%]{2,100})", set()),
+    "linktree": (r"linktr\.ee/([A-Za-z0-9_.\-]{2,60})", set()),
+    "ifood": (r"ifood\.com\.br/(delivery/[A-Za-z0-9_\-/]{3,160})", set()),
+    "x": (r"(?:twitter|x)\.com/([A-Za-z0-9_]{2,30})", {"share", "intent", "home", "search", "i"}),
+}
+_URL_REDE = {
+    "instagram": "https://www.instagram.com/{}/",
+    "facebook": "https://www.facebook.com/{}",
+    "tiktok": "https://www.tiktok.com/{}",
+    "youtube": "https://www.youtube.com/{}",
+    "linkedin": "https://www.linkedin.com/{}",
+    "linktree": "https://linktr.ee/{}",
+    "ifood": "https://www.ifood.com.br/{}",
+    "x": "https://x.com/{}",
+}
+NOMES_REDES = {
+    "instagram": "Instagram", "facebook": "Facebook", "tiktok": "TikTok", "youtube": "YouTube",
+    "linkedin": "LinkedIn", "linktree": "Linktree", "ifood": "iFood", "x": "X (Twitter)",
+}
+
+
+def achar_redes(texto: str) -> dict:
+    """
+    Procura perfis de redes sociais num texto ou HTML.
+    Devolve {rede: url limpa}, só com as redes encontradas (o primeiro perfil de cada).
+    """
+    redes = {}
+    if not texto:
+        return redes
+    for rede, (padrao, invalidos) in _REDES.items():
+        for perfil in re.findall(padrao, texto, re.I):
+            perfil = perfil.rstrip("./")
+            if perfil.lower().split("/")[0] in invalidos:
+                continue
+            redes[rede] = _URL_REDE[rede].format(perfil)
+            break
+    return redes
+
+
+def juntar_redes(*fontes: dict) -> dict:
+    """Junta várias listas de redes; a primeira fonte que trouxer uma rede ganha."""
+    redes = {}
+    for fonte in fontes:
+        for rede, url in (fonte or {}).items():
+            if url and rede not in redes:
+                redes[rede] = url
+    return redes
+
+
+def numero_curto(texto: str):
+    """'1.234' -> 1234 ; '12,5 mil' -> 12500 ; '3K' -> 3000 ; '1,2M' -> 1200000"""
+    if not texto:
+        return None
+    achado = re.search(r"(\d+(?:[.,]\d+)*)\s*(mil|k|m|mi)?\b", str(texto).strip(), re.I)
+    if not achado:
+        return None
+    numero, unidade = achado.group(1), (achado.group(2) or "").lower()
+    if unidade:
+        valor = float(numero.replace(".", "").replace(",", ".")) if "," in numero else float(numero)
+        return int(round(valor * (1_000_000 if unidade in ("m", "mi") else 1_000)))
+    return int(re.sub(r"[.,]", "", numero))
+
+
+def ler_resumo_instagram(texto: str) -> dict:
+    """
+    O Instagram mostra, sem login, um resumo do perfil na tag og:description:
+    "1.234 seguidores, 56 seguindo, 789 publicações - Veja as fotos..." (ou em inglês).
+    Devolve {seguidores, posts} com o que conseguir ler (None se não achar).
+    """
+    texto = texto or ""
+    seguidores = re.search(r"([\d.,]+\s*(?:mil|k|m|mi)?)\s*(?:seguidores|followers)", texto, re.I)
+    posts = re.search(r"([\d.,]+\s*(?:mil|k|m|mi)?)\s*(?:publica[çc][õo]es|posts)", texto, re.I)
+    return {
+        "seguidores": numero_curto(seguidores.group(1)) if seguidores else None,
+        "posts": numero_curto(posts.group(1)) if posts else None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +257,20 @@ def numero_br(texto: str):
     if "," in valor:  # decimal brasileiro
         return float(valor.replace(".", "").replace(",", "."))
     return int(valor.replace(".", ""))
+
+
+_UNIDADES_TEMPO = {"hora": 0, "minuto": 0, "segundo": 0, "dia": 1, "semana": 7, "mês": 30, "mes": 30,
+                   "meses": 30, "ano": 365}
+
+
+def dias_atras(texto: str):
+    """'há 2 semanas' -> 14 ; 'há um mês' -> 30 ; 'Editado há 3 anos' -> 1095 ; não entendeu -> None"""
+    achado = re.search(r"(\d+|um|uma)\s+(hora|minuto|segundo|dia|semana|m[eê]s|meses|ano)", (texto or "").lower())
+    if not achado:
+        return None
+    quantidade = 1 if achado.group(1) in ("um", "uma") else int(achado.group(1))
+    unidade = achado.group(2).replace("ê", "e")
+    return quantidade * _UNIDADES_TEMPO.get(unidade, _UNIDADES_TEMPO.get(unidade.rstrip("s"), 1))
 
 
 def slugify(texto: str) -> str:

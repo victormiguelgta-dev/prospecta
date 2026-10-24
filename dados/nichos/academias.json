@@ -2,54 +2,7 @@
   "id": "academias",
   "nome": "Academias",
   "termo_busca": "Academia",
-  "template": "modelo-academias",
-  "cor_padrao": "#2563eb",
   "icone": "🏋",
-  "roteiro": "Tom energético e motivador, sem exageros nem promessas de resultado garantido. Destaque estrutura, acompanhamento e horários. Serviços = modalidades comuns (musculação, funcional, aeróbico, avaliação física) sem inventar modalidades específicas que não estejam na categoria. Não invente preços nem planos.",
-  "textos_padrao": {
-    "slogan": "Seu melhor treino começa aqui",
-    "cta": "Agendar aula experimental",
-    "subtitulo": "Estrutura completa e acompanhamento em {regiao}.",
-    "sobre": "A {nome} é o lugar para você cuidar da saúde, ganhar disposição e evoluir no seu ritmo, com equipamentos de qualidade e profissionais prontos para orientar seu treino."
-  },
-  "servicos_padrao": [
-    {
-      "titulo": "Musculação",
-      "descricao": "Equipamentos para treinar todos os grupos musculares."
-    },
-    {
-      "titulo": "Treino funcional",
-      "descricao": "Exercícios dinâmicos para força, resistência e mobilidade."
-    },
-    {
-      "titulo": "Aeróbico",
-      "descricao": "Esteiras e bikes para o seu condicionamento."
-    },
-    {
-      "titulo": "Orientação profissional",
-      "descricao": "Acompanhamento para treinar com segurança."
-    }
-  ],
-  "diferenciais_padrao": [
-    "Ambiente motivador",
-    "Profissionais qualificados",
-    "Horários flexíveis"
-  ],
-  "mensagem_whatsapp": "Olá, {nome}! Tudo bem? Meu nome é {meu_nome}, faço sites para negócios aqui da região. Vi vocês no Google Maps e montei uma prévia de como poderia ficar o site de vocês: {link}\n\nÉ só uma demonstração, consigo deixar ainda melhor e do jeito de vocês. Posso te explicar como funciona?",
-  "imagens": [
-    {
-      "arquivo": "academia-celular-2fa811.jpg",
-      "uso": "fundo",
-      "descricao": "",
-      "largura": 390,
-      "altura": 844
-    },
-    {
-      "arquivo": "academia-desktop-a1f39f.jpg",
-      "uso": "fundo",
-      "descricao": "",
-      "largura": 601,
-      "altura": 1920
-    }
-  ]
+  "agenda": true,
+  "pedido_online": false
 }

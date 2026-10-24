@@ -1,6 +1,5 @@
 """
-Exporta os leads para Excel (com a mesma formatação do script original)
-e para JSON.
+Exporta os leads para Excel (planilha formatada) e para JSON.
 """
 import json
 import re
@@ -12,7 +11,9 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from .config import PASTA_PLANILHAS
-from .limpeza import SITUACOES
+from .db import NOMES_CLASSES, NOMES_ETAPAS
+from .limpeza import NOMES_REDES, SITUACOES
+from .oportunidades import NOMES_SERVICOS
 
 CEP_REGEX = re.compile(r"\b\d{5}-?\d{3}\b")
 
@@ -23,28 +24,44 @@ def _cep(endereco):
 
 
 def para_excel(leads: list, nome_base: str = "leads") -> str:
-    linhas = [{
-        "Nome": l["nome"],
-        "Categoria": l.get("categoria") or "",
-        "Situação do site": SITUACOES.get(l.get("situacao_site"), ""),
-        "Status": l.get("status") or "",
-        "Telefone": l.get("telefone") or "",
-        "WhatsApp": l.get("whatsapp") or "",
-        "Instagram": l.get("instagram") or "",
-        "E-mail": l.get("email") or "",
-        "Site": l.get("site") or "",
-        "Nota": l.get("nota") or "",
-        "Avaliações": l.get("avaliacoes") or "",
-        "Endereço": l.get("endereco") or "",
-        "Região": l.get("regiao") or "",
-        "Demo": l.get("slug") or "",
-        "Maps": l.get("maps_url") or "",
-    } for l in leads]
+    linhas = []
+    for l in leads:
+        redes = l.get("redes") or {}
+        linha = {
+            "Nome": l["nome"],
+            "Classe": NOMES_CLASSES.get(l.get("classe"), ""),
+            "Nota de potencial": l.get("nota_potencial"),
+            "O que vender": ", ".join(NOMES_SERVICOS.get(o["servico"], o["servico"]) for o in l.get("oportunidades") or []),
+            "Serviço principal": NOMES_SERVICOS.get(l.get("servico_principal"), ""),
+            "Etapa": NOMES_ETAPAS.get(l.get("etapa"), ""),
+            "Estado": l.get("estado") or "",
+            "Categoria": l.get("categoria") or "",
+            "Telefone": l.get("telefone") or "",
+            "WhatsApp": l.get("whatsapp") or "",
+            "E-mail": l.get("email") or "",
+            "Situação do site": SITUACOES.get(l.get("situacao_site"), ""),
+            "Site": l.get("site") or "",
+            "Saúde do Maps": l.get("saude_maps"),
+            "Nota Google": l.get("nota") or "",
+            "Avaliações": l.get("avaliacoes") or "",
+        }
+        for rede, nome in NOMES_REDES.items():
+            linha[nome] = redes.get(rede, "")
+        linha.update({
+            "Posts no Instagram": l.get("instagram_posts") or "",
+            "Seguidores no Instagram": l.get("instagram_seguidores") or "",
+            "Endereço": l.get("endereco") or "",
+            "Região": l.get("regiao") or "",
+            "Próximo passo": l.get("proximo_passo") or "",
+            "Data do próximo passo": l.get("data_proximo_passo") or "",
+            "Maps": l.get("maps_url") or "",
+        })
+        linhas.append(linha)
 
     df = pd.DataFrame(linhas)
     if not df.empty:
         df["_cep"] = df["Endereço"].apply(_cep)
-        df = df.sort_values(by=["_cep", "Nome"]).drop(columns=["_cep"])
+        df = df.sort_values(by=["Nota de potencial", "_cep"], ascending=[False, True]).drop(columns=["_cep"])
 
     arquivo = PASTA_PLANILHAS / f"{nome_base}_{datetime.now():%Y-%m-%d_%H%M%S}.xlsx"
     df.to_excel(arquivo, index=False)

@@ -1,0 +1,71 @@
+{
+  "faixas": {
+    "potencial": 70,
+    "talvez": 40
+  },
+  "pontos": {
+    "avaliacoes": [[200, 20], [50, 15], [20, 10], [10, 6], [1, 3]],
+    "nota_google": [[4.5, 10], [4.0, 7], [3.5, 4]],
+    "avaliacao_recente_dias": [[30, 5], [90, 3]],
+    "instagram_posts": [[100, 5], [30, 3], [1, 1]],
+    "horario": 2,
+    "cinco_fotos": 3,
+    "whatsapp": 10,
+    "rede_social": 5,
+    "oportunidade": {
+      "alta": 25,
+      "media": 15,
+      "baixa": 5
+    },
+    "oportunidade_extra": 5,
+    "oportunidade_extra_maximo": 15
+  },
+  "franquias": [
+    "smart fit",
+    "smartfit",
+    "bodytech",
+    "bluefit",
+    "selfit",
+    "pratique fitness",
+    "panobianco",
+    "domino's",
+    "dominos",
+    "pizza hut",
+    "subway",
+    "mcdonald",
+    "burger king",
+    "bob's",
+    "habib's",
+    "odontocompany",
+    "oral sin",
+    "sorridents",
+    "odonto excellence",
+    "barbearia corleone",
+    "dom barbudo",
+    "o boticário",
+    "cacau show",
+    "kopenhagen"
+  ],
+  "regioes_para_rede": 3,
+  "palavras_queixa": [
+    "atend",
+    "demora",
+    "demor",
+    "não respond",
+    "nao respond",
+    "ninguém respond",
+    "ninguem respond",
+    "não atende",
+    "nao atende",
+    "telefone",
+    "whatsapp",
+    "zap",
+    "agendar",
+    "agendamento",
+    "marcar horário",
+    "marcar horario",
+    "esper",
+    "fila",
+    "sem resposta"
+  ]
+}

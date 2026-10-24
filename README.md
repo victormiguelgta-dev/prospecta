@@ -1,175 +1,166 @@
-# Prospecta Sites
+# Prospecta
 
-Um bot encontra no Google Maps negócios sem site, monta uma prévia do site de cada um com template, cores da logo e textos de IA, e prepara a mensagem de WhatsApp. Você só entra na conversa e na venda.
+CRM de prospecção. Um bot encontra negócios no Google Maps, junta as informações de cada um (Maps, site e todas as redes sociais), classifica o potencial e diz o que cada cliente pode comprar de você: **Google Maps**, **site** ou **desenvolvimento** (automação ou ferramenta sob medida). Você trabalha os leads num quadro e, para cada cliente, tem um **pacote** com tudo para a conversa ou para mandar a uma IA fazer o serviço.
+
+O sistema **não gera sites**. Ele pesquisa, classifica e organiza; quem decide e faz é você.
 
 ```
-Maps ──► bot (Playwright) ──► banco (SQLite) ──► gerador (template + IA) ──► Netlify ──► WhatsApp
+Maps ──► bot (Playwright) ──► banco (SQLite) ──► regras + IA ──► quadro (React) ──► você liga ou chama no WhatsApp
 ```
 
-## Instalação
+## Como funciona
+
+1. **Busca**: você escolhe o nicho e as regiões. O bot visita cada negócio no Maps e coleta nome, telefone, endereço, nota, avaliações, horário, descrição, fotos (só os links), links de redes sociais e o site.
+2. **Site**: se existe, o bot abre e vê se está no ar, se tem HTTPS e versão para celular.
+3. **Redes sociais**: junta as que aparecem no Maps e no site. Se não achar Instagram nem Facebook, a IA pesquisa o nome da marca no Google. Do Instagram, lê o total de posts e de seguidores (sem login).
+4. **Avaliações**: lê as mais recentes, só para classificar (reclamações, respostas do dono). Nenhum nome de cliente é guardado.
+5. **Classificação**: a nota de 0 a 100 sai de regras fixas; a IA lê os dados e diz as dores, o que vender e a primeira frase da conversa.
+6. **Quadro**: o lead entra em "Lead novo". Você arrasta pelas etapas até "Fechado".
+
+### As três classes
+
+| Nota | Classe |
+|---|---|
+| 70 a 100 | **Potencial** |
+| 40 a 69 | **Talvez** |
+| 0 a 39 | **Pouco potencial** |
+
+Todos aparecem no quadro, ordenados da maior nota para a menor; use os filtros para ver só uma classe.
+
+### O que cada cliente pode comprar (a escada)
+
+1. **Google Maps**: o perfil está fraco (poucas fotos, sem descrição, sem horário, avaliações negativas sem resposta, poucas avaliações). Negócio novo, com poucas avaliações, cai aqui.
+2. **Site**: não tem site, só tem rede social, o site é gratuito, está fora do ar ou não tem versão de celular.
+3. **Desenvolvimento**: já tem Maps ou site. Avaliações reclamando de atendimento, nicho que agenda sem botão de agendar, nicho de comida sem pedido online, muito movimento e só telefone fixo.
+
+Cada oportunidade vem com a **prova** (ex.: "3 avaliações negativas sem resposta"). O serviço principal é o primeiro degrau que o cliente ainda não tem.
+
+### Quem sai do quadro sozinho
+
+O bot descarta (e manda para "Arquivados") quem está **fechado** no Google, quem **não tem telefone** e **redes e franquias** (o contato do Maps não é o dono). Poucas avaliações nunca eliminam ninguém.
+
+### Etapas do quadro e o que fica fora dele
+
+- **Lead novo → Em contato → Cliente interessado → Fechado**: arraste o cartão (no celular, segure meio segundo antes de arrastar) ou troque a etapa na ficha.
+- **Congelar**: para quem demonstrou interesse e parou de responder. Você escolhe o dia de ligar de novo e ele aparece em **Ligar hoje** nesse dia.
+- **Arquivar**: sem interesse agora. Fica guardado com o motivo e dá para voltar ao quadro depois.
+- **Ligar hoje**: todo lead (do quadro ou congelado) com próximo passo para hoje ou atrasado.
+
+### O pacote do cliente
+
+Na ficha do lead, **Pacote do cliente** mostra um documento com classificação, contato, redes sociais, o que vender com as provas, dores, primeira frase da conversa, informações para o site (descrição, público, diferencial, horário, logo, cores da logo, links das fotos), situação do site atual, saúde do Maps, o que falta pegar com o cliente e o histórico. Dá para copiar ou baixar em `.md` (para ler e colar numa IA) ou `.json`.
+
+## Instalação (uma vez só)
+
+Precisa de **Python 3.11 ou mais novo**, **Node.js 20 ou mais novo** e **Git**.
 
 ```bash
+git clone https://github.com/victormiguelgta-dev/prospecta.git
+cd prospecta
+
+# Python
 python -m venv .venv
-source .venv/bin/activate          # no Windows: .venv\Scripts\activate
+.venv\Scripts\activate             # no Linux/Mac: source .venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
-cp .env.example .env               # e preencha o que quiser (nada é obrigatório)
+
+# Painel (React)
+cd painel
+npm install
+npm run build
+cd ..
+
+# Configuração
+copy .env.example .env             # no Linux/Mac: cp .env.example .env
+```
+
+Abra o `.env` e coloque a chave do Gemini (grátis em aistudio.google.com/apikey). Sem ela tudo funciona, mas só com as regras.
+
+## Rodar
+
+```bash
+.venv\Scripts\activate
 python app.py
 ```
 
 Abra **http://localhost:8000**.
 
-## Como usar
+### Programar o painel (React)
 
-1. **Nichos e roteiros**: confira ou crie o nicho, por exemplo "Academias", com o termo "Academia". O roteiro diz à IA o tom e o que ela nunca pode inventar.
-2. **Nova busca**: escolha o nicho, as regiões e quantos locais novos por região. Na primeira vez, desmarque "Rodar o navegador escondido" para ver o bot trabalhando.
-3. **Leads**: por padrão só aparecem os potenciais clientes, ou seja, quem não tem site próprio. Selecione vários e clique em "Gerar sites dos selecionados", ou gere um por um.
-4. Clique no nome do lead para ver a prévia, os dados e a mensagem.
-5. **Publicar demos no Netlify** sobe todos os demos de uma vez.
-6. **Enviar no WhatsApp** abre a conversa com a mensagem pronta. Você confere e aperta enviar. O lead passa para "Mensagem enviada".
-7. Vá movendo cada lead pelo funil (Respondeu, Fechou, Não quis). Os números do topo mostram como está cada etapa.
+Com o `python app.py` rodando, abra outro terminal:
 
-## Template de academia
-
-O template `academia` é um modelo completo para academias, com:
-- slides no topo (primeiro as fotos reais, depois as imagens de pessoas do nicho);
-- contadores animados só com números reais;
-- modalidades, uma seção de destaque, estrutura (só fotos reais), planos sem preço, avaliações do Google, horários e mapa.
-
-Para usar:
-1. Em **Nichos e roteiros → Academias**, escolha `academia` em **Template** e salve.
-2. Em **Imagens do nicho**, envie as fotos de pessoas treinando com a função **Pessoas (slides)**.
-
-Use fotos com licença livre (Unsplash, Pexels) ou geradas por IA. Imagens de banco pago tiradas do Google não podem ser usadas.
-
-## Modelo de site do nicho
-
-Na aba **Nichos e roteiros**, a área **Modelo de site** recebe um site pronto para servir de base a todos os sites daquele nicho:
-
-1. Envie um `.html` (com o CSS dentro) ou um `.zip` com o HTML, o CSS e as imagens, mantendo as pastas como estão.
-2. Escolha se o fundo do modelo é **claro** ou **escuro**. Isso decide como as cores da logo do cliente se encaixam.
-3. Clique em **Converter com IA**. Ela troca textos, fotos e contatos fixos por variáveis e tira o que seria falso para outro negócio: preços, "+500 alunos", depoimentos escritos à mão, CNPJ. É feito **uma vez só**, e o painel mostra quantos tokens vai custar.
-4. Clique em **Ver prévia com dados de exemplo** e confira. Se algo ficou errado, **baixe o template**, corrija no VS Code e use **Enviar template editado**.
-5. A partir daí, todo site do nicho usa o modelo. **Parar de usar** volta para o template padrão.
-
-Sem chave do Gemini, dá para converter à mão: baixe o original, troque o conteúdo pelas variáveis abaixo e envie o template editado. Um arquivo que já tem `{{ s.nome }}` é aceito direto.
-
-A faixa "Prévia criada por..." e o `noindex` são colocados automaticamente em todo site gerado por modelo.
-
-Variáveis do objeto `s`:
-
-```
-s.nome, s.categoria, s.regiao, s.endereco, s.telefone, s.instagram
-s.slogan, s.subtitulo, s.sobre            textos (IA ou padrão do nicho)
-s.servicos      lista de {titulo, descricao}
-s.diferenciais  lista de textos curtos
-s.cta_texto     texto do botão principal
-s.cta_link      link do botão principal (WhatsApp ou telefone; pode ser vazio)
-s.cta_tipo      "whatsapp", "telefone" ou vazio
-s.link_whatsapp, s.link_telefone, s.link_maps, s.mapa_embed (URL para <iframe>)
-s.nota          ex.: "4,7" (vazio se não tiver)
-s.avaliacoes    número de avaliações no Google
-s.horarios      lista de {dia, horas}
-s.depoimentos   lista de {autor, estrelas, texto} (avaliações reais do Google)
-s.logo          arquivo da logo (pode ser vazio: use s.iniciais no lugar)
-s.foto_principal  foto do topo (pode ser vazia)
-s.foto_real     true se a foto_principal é do próprio negócio
-s.galeria       lista de arquivos de fotos do negócio
-s.imagem_detalhe, s.imagem_textura   imagens do seu banco do nicho (podem ser vazias)
-s.cor.destaque, s.cor.sobre_destaque, s.cor.fundo, s.cor.superficie,
-s.cor.texto, s.cor.texto_suave, s.cor.profundo   cores tiradas da logo do cliente
-s.iniciais, s.ano
+```bash
+cd painel
+npm run dev
 ```
 
-Exemplo: `<h1>{{ s.nome }}</h1>`, `{% for f in s.galeria %}<img src="{{ f }}">{% endfor %}`,
-`{% if s.nota %}{{ s.nota }} no Google{% endif %}`.
+e abra o endereço que ele mostrar (normalmente http://localhost:5173). Cada alteração em `painel/src/` aparece na hora. Quando terminar, rode `npm run build` para o `python app.py` servir a versão nova.
 
-## Galeria, avaliações e nota de dados
+### Abrir pelo celular (VPN)
 
-Para cada lead sem site, o bot também pega **até 8 fotos** da galeria do Maps, **até 5 avaliações reais** com texto (só de 4 ou 5 estrelas, e só o primeiro nome do autor) e a **descrição do dono**. O site ganha as seções de galeria e "O que dizem no Google". A IA usa a descrição e o que os clientes elogiam para escrever textos específicos daquele negócio.
+1. Instale o **Tailscale** no PC e no celular e entre com a mesma conta.
+2. No `.env`, coloque em `HOST` o IP do Tailscale do PC (aparece no aplicativo, começa com 100.).
+3. Rode `python app.py` e, no celular, abra `http://<ip-do-tailscale>:8000`.
 
-Cada lead recebe uma nota de **Dados de 0 a 10**:
-- **Completo** (6 ou mais): gera normalmente.
-- **Médio** (3 a 5): gera, mas confira antes de enviar.
-- **Fraco** (menos de 3): a geração em lote pula, a não ser que você marque "Incluir leads com poucos dados".
+O painel não tem senha. Nunca deixe a porta aberta na internet: use só pela VPN.
 
-Passe o mouse sobre o selo para ver o que falta. A coleta extra deixa cada local uns segundos mais lento; dá para desligar na tela de busca.
+## Ajustar a classificação
 
-## Imagens e material de consulta por nicho
+Os pesos ficam em `dados/potencial.json`:
 
-Na aba **Nichos e roteiros**, embaixo do formulário, cada nicho tem duas áreas:
+- `faixas`: onde começa cada classe (70 e 40);
+- `pontos`: quanto vale cada sinal (avaliações, nota, Instagram, WhatsApp, força da oportunidade);
+- `franquias`: nomes de redes que o bot descarta;
+- `palavras_queixa`: palavras que, numa avaliação ruim, indicam problema de atendimento.
 
-**Imagens do nicho**: imagens suas (Unsplash, Pexels ou feitas por você) que podem entrar nos sites. Cada uma tem uma função, e só aparece no lugar daquela função:
+Os nichos ficam em `dados/nichos/` e no painel em **Configurações**. Marque se o ramo **agenda horário** e se **vende por pedido**: isso liga as oportunidades de desenvolvimento.
 
-| Função | Onde aparece |
-|---|---|
-| Topo (sem foto real) | No topo, **só** quando o negócio não tem nenhuma foto no Maps |
-| Entre as seções | Imagem ilustrativa ao lado do "Quem somos" ou entre as seções |
-| Fundo da chamada | Atrás da chamada final, escurecida |
-
-Elas nunca ocupam o lugar das fotos do próprio negócio. Prefira detalhes do ramo (halteres, massa de pizza, bíblia aberta) a fotos de recepção, fachada ou pessoas: o dono sabe que aquele lugar não é o dele. Com várias imagens da mesma função, cada lead recebe uma diferente, e sempre a mesma se você gerar de novo.
-
-**Material de consulta da IA**: arquivos .txt, .md, .csv, .json ou .pdf que a IA lê antes de escrever, como serviços comuns do ramo, palavras que o público usa, regras do conselho da profissão ou textos que você gosta. Vão até 6.000 caracteres por site (cerca de 1.500 tokens). O que passar disso é cortado, então coloque o mais importante primeiro.
-
-Tudo fica em `dados/arquivos_nicho/<nicho>/`.
-
-## Configuração do `.env`
-
-| Variável | Para quê |
-|---|---|
-| `GEMINI_API_KEY` | Textos personalizados por IA. É grátis em aistudio.google.com/apikey. Sem chave, usa os textos padrão do nicho. |
-| `NETLIFY_TOKEN` / `NETLIFY_SITE_ID` | Publicar os demos. Crie **um** site vazio no Netlify só para os demos. |
-| `URL_DEMOS` | Endereço desse site, ex.: `https://victor-demos.netlify.app`. É o link que vai na mensagem. |
-| `SEU_WHATSAPP` | Coloca o botão "Quero este site" na faixa de prévia, que manda o cliente para você. |
+Depois de mudar os pesos, use **Configurações → Reanalisar todos os leads**. Anote quem fecha e quem não fecha: depois de 20 a 30 leads, dá para ver quais sinais acertaram e ajustar os pesos.
 
 ## Quanto custa
 
-- **Busca**: grátis, porque o bot usa seu navegador.
-- **IA**: cerca de 1.000 tokens por site, com o "pensamento" do modelo desligado. O plano grátis do Gemini cobre bem o começo. Os limites mudam, então confira em ai.google.dev/pricing. A IA só escreve os textos; o HTML vem pronto do template. Os textos ficam salvos, então "Gerar de novo" não gasta token, só "Gerar com textos novos".
-- **Netlify**: o plano grátis basta. Todos os demos ficam num site só, cada um numa pasta.
+- **Busca**: grátis (o bot usa um navegador no seu PC).
+- **IA**: uma análise por lead, com poucos tokens. A pesquisa de redes na web usa a busca do Google dentro do Gemini, que tem uma cota grátis própria. Os limites do plano grátis mudam: confira em ai.google.dev/pricing.
 
 ## Estrutura
 
 ```
-app.py                  servidor do painel (FastAPI) + API
+app.py                  servidor (FastAPI): API do CRM + serve o painel
 core/
   scraper.py            bot do Maps (Playwright), com os seletores no topo
-  limpeza.py            limpa texto, classifica site, acha WhatsApp/Instagram
-  db.py                 banco SQLite dos leads
-  nichos.py             lê e salva nichos e regiões
-  ia.py                 chamada ao Gemini com fallback sem IA
-  arquivos_nicho.py     uploads de imagens e material de consulta
-  modelos.py            modelo de site do nicho (upload, conversão, prévia)
-  qualidade.py          nota de dados de cada lead
-  cores.py              pega a cor da logo e monta a paleta
-  gerador.py            junta tudo e gera o site
-  deploy.py             publica no Netlify
+  limpeza.py            limpa texto, classifica o site, acha redes sociais e WhatsApp
+  analise.py            junta tudo depois da coleta: descarte, redes na web, regras e IA
+  potencial.py          nota de 0 a 100, classe e descarte (lê dados/potencial.json)
+  oportunidades.py      saúde do Maps e o que vender (maps, site, desenvolvimento)
+  ia.py                 Gemini: análise do lead e pesquisa de redes na web
+  pacote.py             o documento de cada cliente (Markdown e JSON)
+  mensagem.py           mensagem inicial de WhatsApp e links de ligar
+  db.py                 banco SQLite: leads e histórico de contatos
+  nichos.py             nichos e regiões
+  cores.py              cores da logo
   exportar.py           Excel e JSON
-dados/nichos/*.json     um roteiro por nicho (edite pelo painel)
-dados/arquivos_nicho/   imagens e material de consulta de cada nicho
+  diagnostico.py        prints do que o bot vê no Maps (para ajustar seletores)
+dados/nichos/*.json     um arquivo por nicho
+dados/potencial.json    pesos da classificação
 dados/regioes.json      lista de regiões
-templates_sites/        padrao (claro), escuro, academia e os modelo-<nicho> que você enviar
-painel/                 o painel (HTML, CSS e JS puros)
-saida/sites/            os demos gerados
+painel/                 painel em React (Vite); src/ é o código, dist/ é gerado pelo build
 testes/                 testes (python -m pytest testes)
 ```
 
-### Criar um template novo
+## Testes
 
-Copie `templates_sites/padrao` para `templates_sites/meu-template`, edite o `index.html.j2` e ele aparece no select de templates do nicho. As variáveis disponíveis são `lead` (dados do Maps), `t` (textos), `cor` (paleta), `logo`, `foto` e `link_whatsapp`. Veja os dois templates como exemplo.
+```bash
+pip install pytest httpx
+python -m pytest testes
+```
+
+## Vindo da versão antiga
+
+O banco antigo (`dados/prospeccao.db`) é convertido sozinho na primeira vez: os status viram etapas do quadro e quem tinha sido descartado por ter site volta para análise (agora pode comprar desenvolvimento). Os leads antigos não têm os dados novos (redes, avaliações lidas, sinais): use **Reanalisar todos** e, para os melhores, **Buscar de novo no Maps** na ficha.
 
 ## Cuidados
 
-- **O Google muda o Maps.** Se algum campo parar de vir (nota, horário, foto), ajuste o seletor em `SELETORES` no topo do `core/scraper.py`. Raspar o Maps vai contra os termos do Google: use limites baixos por região, porque é isso que evita bloqueio. O mesmo vale para o Instagram.
-- **WhatsApp**: o envio fica de propósito com um clique seu por lead. Disparo automático em massa é o jeito mais rápido de ter o número banido. Mande poucas mensagens por dia, ajuste o texto e responda rápido.
-- **LGPD**: você usa dados públicos de empresas para uma abordagem comercial pontual. Se alguém pedir para não ser contatado, marque o lead como "Não quis" e não insista.
-- **Os demos usam a marca de outra empresa.** Por isso eles têm `noindex` e não aparecem no Google, e trazem a faixa "Prévia criada por...". Apague o demo de quem não fechou: botão "Apagar demo" e depois publique de novo.
-- O template nunca inventa depoimentos. Ele mostra só a nota real do Google.
-
-## Próximos passos
-
-- Mais templates por nicho (ex.: um específico para igrejas com agenda de cultos)
-- Rodar a busca agendada (ex.: toda segunda, 3 regiões novas)
-- Extensão do Chrome ou integração com WhatsApp Business para registrar respostas automaticamente
-- Página de "proposta" com preços para enviar depois que o lead responder
-# prospecta
+- **O Google muda o Maps.** Se algum dado parar de vir, use **Diagnóstico do bot** na ficha do lead e ajuste o seletor em `SELETORES` no topo de `core/scraper.py`. Raspar o Maps e o Instagram vai contra os termos de uso: use limites baixos por região, porque é isso que evita bloqueio.
+- **WhatsApp**: o envio é sempre com um clique seu. Disparo automático em massa é o jeito mais rápido de ter o número banido.
+- **LGPD**: dados públicos de empresas, para uma abordagem comercial pontual. Quem pedir para não ser contatado vai para Arquivados e não recebe mais mensagens.
+- **Promessas**: nunca prometa "primeiro lugar no Google". Para mexer no perfil do Maps, o dono precisa te dar acesso de gerente.
