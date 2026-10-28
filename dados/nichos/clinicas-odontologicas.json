@@ -1,8 +1,0 @@
-{
-  "id": "clinicas-odontologicas",
-  "nome": "Clínicas odontológicas",
-  "termo_busca": "Clínica odontológica",
-  "icone": "🦷",
-  "agenda": true,
-  "pedido_online": false
-}

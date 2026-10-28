@@ -1,14 +1,42 @@
-// Configurações: nichos, regiões, reanálise e exportação.
+// Configurações: seu nome, nichos, regiões, reanálise e exportação.
 import { useEffect, useState } from "react";
-import { api } from "../api.js";
+import { api, baixarArquivo, hojeIso } from "../api.js";
+import { paraCsv, paraJson } from "../exportar.js";
 
 const NICHO_NOVO = { id: "", nome: "", termo_busca: "", icone: "✦", agenda: false, pedido_online: false };
 
-export default function Config({ estado, nichos, regioes, aoMudar, avisar }) {
+export default function Config({ estado, nichos, regioes, aoMudar, aoPedir, avisar }) {
   const [nicho, setNicho] = useState(NICHO_NOVO);
   const [textoRegioes, setTextoRegioes] = useState("");
+  const [nome, setNome] = useState(estado.seu_nome || "");
+  const [exportando, setExportando] = useState(false);
 
   useEffect(() => setTextoRegioes(regioes.join("\n")), [regioes]);
+
+  async function salvarNome(e) {
+    e.preventDefault();
+    try {
+      await api.salvarSeuNome(nome);
+      avisar("Nome salvo");
+      aoMudar();
+    } catch (erro) {
+      avisar(erro.message, "erro");
+    }
+  }
+
+  async function exportar(formato, estadoLeads) {
+    setExportando(true);
+    try {
+      const leads = await api.leadsCompletos({ estado: estadoLeads });
+      const nomeArquivo = `leads_${estadoLeads || "todos"}_${hojeIso()}`;
+      if (formato === "json") baixarArquivo(`${nomeArquivo}.json`, paraJson(leads), "application/json");
+      else baixarArquivo(`${nomeArquivo}.csv`, paraCsv(leads), "text/csv;charset=utf-8");
+    } catch (erro) {
+      avisar(erro.message, "erro");
+    } finally {
+      setExportando(false);
+    }
+  }
 
   async function salvarNicho(e) {
     e.preventDefault();
@@ -24,10 +52,14 @@ export default function Config({ estado, nichos, regioes, aoMudar, avisar }) {
 
   async function excluirNicho() {
     if (!nicho.id || !window.confirm(`Excluir o nicho ${nicho.nome}? Os leads dele continuam no quadro.`)) return;
-    await api.excluirNicho(nicho.id);
-    setNicho(NICHO_NOVO);
-    avisar("Nicho excluído");
-    aoMudar();
+    try {
+      await api.excluirNicho(nicho.id);
+      setNicho(NICHO_NOVO);
+      avisar("Nicho excluído");
+      aoMudar();
+    } catch (erro) {
+      avisar(erro.message, "erro");
+    }
   }
 
   async function salvarRegioes() {
@@ -43,9 +75,10 @@ export default function Config({ estado, nichos, regioes, aoMudar, avisar }) {
   async function reanalisarTodos() {
     if (!window.confirm("Analisar de novo todos os leads do quadro? Com IA, isso gasta tokens do Gemini.")) return;
     try {
-      const r = await api.reanalisar([], estado.ia);
-      avisar(`Reanalisando ${r.total} leads… acompanhe em Nova busca`);
-      aoMudar();
+      await api.reanalisar([], true);
+      avisar(estado.pc_ligado ? "Reanálise enviada para o PC… acompanhe em Nova busca"
+        : "Reanálise na fila: ela roda quando você ligar o trabalhador no PC");
+      aoPedir();
     } catch (erro) {
       avisar(erro.message, "erro");
     }
@@ -56,6 +89,15 @@ export default function Config({ estado, nichos, regioes, aoMudar, avisar }) {
       <header className="lista-topo"><h1>Configurações</h1></header>
 
       <div className="config-grade">
+        <section className="secao">
+          <h2>Seu nome</h2>
+          <p className="ajuda">Vai na primeira mensagem de WhatsApp (“Meu nome é …”).</p>
+          <form className="form-linha" onSubmit={salvarNome}>
+            <input id="seu-nome" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Seu nome" />
+            <button className="btn btn-primario">Salvar</button>
+          </form>
+        </section>
+
         <section className="secao">
           <h2>Nichos</h2>
           <div className="chips">
@@ -101,20 +143,27 @@ export default function Config({ estado, nichos, regioes, aoMudar, avisar }) {
         <section className="secao">
           <h2>Classificação</h2>
           <p className="ajuda">
-            Os pesos da nota ficam no arquivo <code>dados/potencial.json</code>. Depois de mudar os pesos
+            Os pesos da nota ficam no arquivo <code>dados/potencial.json</code>, no PC. Depois de mudar os pesos
             ou de melhorar o bot, reanalise os leads para atualizar a nota e as oportunidades.
           </p>
-          <p className="ajuda">IA: {estado.ia ? `ligada (${estado.modelo_ia})` : "desligada — coloque GEMINI_API_KEY no arquivo .env"}</p>
+          <p className="ajuda">
+            {estado.pc_ligado
+              ? `PC ligado · IA ${estado.ia ? `ligada (${estado.modelo_ia})` : "desligada: coloque GEMINI_API_KEY no .env do PC"}`
+              : "PC desligado: a reanálise fica na fila até você ligar o trabalhador."}
+          </p>
           <button className="btn" onClick={reanalisarTodos}>Reanalisar todos os leads do quadro</button>
         </section>
 
         <section className="secao">
           <h2>Exportar</h2>
-          <p className="ajuda">Planilha com a classe, o que vender, os contatos e todas as redes sociais.</p>
+          <p className="ajuda">
+            Planilha (abre no Excel e no Google Planilhas) com a classe, o que vender, os contatos e todas as redes
+            sociais. O PC também guarda um backup completo por dia na pasta <code>saida/backups</code>.
+          </p>
           <div className="linha">
-            <a className="btn" href={api.linkExportar({ formato: "xlsx" })}>Excel do quadro</a>
-            <a className="btn" href={api.linkExportar({ formato: "xlsx", estado: "" })}>Excel com todos</a>
-            <a className="btn" href={api.linkExportar({ formato: "json" })}>JSON do quadro</a>
+            <button className="btn" disabled={exportando} onClick={() => exportar("csv", "ativo")}>Planilha do quadro</button>
+            <button className="btn" disabled={exportando} onClick={() => exportar("csv", "")}>Planilha com todos</button>
+            <button className="btn" disabled={exportando} onClick={() => exportar("json", "")}>JSON com todos</button>
           </div>
         </section>
       </div>

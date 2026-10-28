@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api.js";
+import { configurado } from "./supabase.js";
 import Busca from "./componentes/Busca.jsx";
 import Config from "./componentes/Config.jsx";
 import Detalhe from "./componentes/Detalhe.jsx";
@@ -31,9 +32,7 @@ export default function App() {
   const [regioes, setRegioes] = useState([]);
   const [aberto, setAberto] = useState(null);
   const [aviso, setAviso] = useState(null);
-  const [tarefa, setTarefa] = useState({ rodando: false, tipo: null, log: [], resultado: null });
-  const desdeLog = useRef(0);
-  const inicioTarefa = useRef(undefined);
+  const [pedidos, setPedidos] = useState([]);
 
   const avisar = useCallback((texto, tipo = "ok") => {
     setAviso({ texto, tipo, id: Date.now() });
@@ -68,9 +67,9 @@ export default function App() {
   }, [carregarEstado, carregarLeads]);
 
   const carregarConfig = useCallback(() => {
-    api.nichos().then(setNichos);
-    api.regioes().then(setRegioes);
-  }, []);
+    api.nichos().then(setNichos).catch((e) => avisar(e.message, "erro"));
+    api.regioes().then(setRegioes).catch((e) => avisar(e.message, "erro"));
+  }, [avisar]);
 
   useEffect(() => {
     carregarEstado();
@@ -86,43 +85,54 @@ export default function App() {
     window.location.hash = aba;
   }, [aba]);
 
-  // Acompanha a tarefa longa (busca, reanálise...) enquanto ela roda
-  const consultarTarefa = useCallback(async () => {
+  const carregarPedidos = useCallback(async () => {
     try {
-      let t = await api.tarefa(desdeLog.current);
-      let recomecou = false;
-      if (t.inicio !== inicioTarefa.current) {
-        // Começou uma tarefa nova: o log do servidor recomeçou do zero
-        t = await api.tarefa(0);
-        inicioTarefa.current = t.inicio;
-        recomecou = true;
-      }
-      setTarefa((anterior) => ({
-        rodando: t.rodando, tipo: t.tipo, resultado: t.resultado,
-        log: recomecou ? t.log : [...anterior.log, ...t.log],
-      }));
-      desdeLog.current = t.total;
-      return t.rodando;
+      const lista = await api.pedidos();
+      setPedidos(lista);
+      return lista;
     } catch {
-      return false;
+      return null;
     }
   }, []);
 
+  // Acompanha a fila de pedidos do PC. Com pedido aberto, olha a cada 3 segundos;
+  // sem, a cada 20 (para não gastar a cota do Supabase à toa).
+  // Os leads novos aparecem no quadro a cada 15 segundos durante a busca e no fim dela.
+  const abertosAntes = useRef(false);
+  const ultimaRecarga = useRef(0);
+  const recarregarAgora = useRef(recarregar);
+  recarregarAgora.current = recarregar;
   useEffect(() => {
     let ativo = true;
-    let rodavaAntes = false;
+    let espera;
     async function ciclo() {
       if (!ativo) return;
-      const rodando = await consultarTarefa();
-      if (rodando || rodavaAntes) recarregar();   // atualiza o quadro enquanto os leads chegam
-      rodavaAntes = rodando;
-      setTimeout(ciclo, rodando ? 1500 : 5000);
+      const lista = await carregarPedidos();
+      const abertos = Boolean(lista?.some((p) => p.status === "pendente" || p.status === "rodando"));
+      const rodando = Boolean(lista?.some((p) => p.status === "rodando"));
+      const acabou = abertosAntes.current && !abertos;
+      if (acabou || (rodando && Date.now() - ultimaRecarga.current > 15000)) {
+        ultimaRecarga.current = Date.now();
+        recarregarAgora.current();
+      } else if (!document.hidden && Date.now() - ultimaRecarga.current > 60000) {
+        ultimaRecarga.current = Date.now();
+        carregarEstado();   // mantém o "PC ligado/desligado" em dia
+      }
+      abertosAntes.current = abertos;
+      espera = setTimeout(ciclo, abertos ? 3000 : 20000);
     }
     ciclo();
     return () => {
       ativo = false;
+      clearTimeout(espera);
     };
-  }, [consultarTarefa, recarregar]);
+  }, [carregarPedidos, carregarEstado]);
+
+  const aoPedir = useCallback(() => {
+    abertosAntes.current = true;
+    carregarPedidos();
+    carregarEstado();
+  }, [carregarPedidos, carregarEstado]);
 
   async function mover(lead, etapa) {
     setLeads((lista) => lista.map((l) => (l.id === lead.id ? { ...l, etapa } : l)));
@@ -145,6 +155,14 @@ export default function App() {
     }
   }
 
+  if (!configurado) {
+    return (
+      <div className="carregando-tela">
+        Falta configurar o banco: crie o arquivo painel/.env (ou as variáveis no Netlify) com
+        VITE_SUPABASE_URL e VITE_SUPABASE_CHAVE.
+      </div>
+    );
+  }
   if (!estado) {
     return <div className="carregando-tela">Carregando o Prospecta…</div>;
   }
@@ -166,10 +184,13 @@ export default function App() {
           <button key={a.id} className={`menu-item${aba === a.id ? " ativo" : ""}`} onClick={() => setAba(a.id)}>
             {a.nome}
             {contagem[a.id] > 0 && <span className={`contador${a.id === "ligar" ? " alerta" : ""}`}>{contagem[a.id]}</span>}
-            {a.id === "busca" && tarefa.rodando && <span className="pulso" aria-label="rodando" />}
+            {a.id === "busca" && pedidos.some((p) => p.status === "rodando") && <span className="pulso" aria-label="rodando" />}
           </button>
         ))}
-        <div className="menu-rodape">IA {estado.ia ? "ligada" : "desligada"}</div>
+        <div className="menu-rodape">
+          <span className={`bolinha ${estado.pc_ligado ? "ligado" : "desligado"}`} aria-hidden="true" />
+          PC {estado.pc_ligado ? "ligado" : "desligado"}
+        </div>
       </nav>
 
       <main className="area-principal">
@@ -218,17 +239,17 @@ export default function App() {
                  vazio="Nenhum lead arquivado." />
         )}
         {aba === "busca" && (
-          <Busca estado={estado} nichos={nichos} regioes={regioes} tarefa={tarefa} avisar={avisar}
-                 aoIniciar={() => { avisar("Busca iniciada"); consultarTarefa(); }} />
+          <Busca estado={estado} nichos={nichos} regioes={regioes} pedidos={pedidos} avisar={avisar} aoPedir={aoPedir} />
         )}
         {aba === "config" && (
-          <Config estado={estado} nichos={nichos} regioes={regioes} avisar={avisar}
+          <Config estado={estado} nichos={nichos} regioes={regioes} avisar={avisar} aoPedir={aoPedir}
                   aoMudar={() => { carregarConfig(); recarregar(); }} />
         )}
       </main>
 
       {aberto && (
-        <Detalhe id={aberto} estado={estado} avisar={avisar} aoFechar={() => setAberto(null)} aoMudar={recarregar} />
+        <Detalhe id={aberto} estado={estado} avisar={avisar} aoFechar={() => setAberto(null)} aoMudar={recarregar}
+                 aoPedir={aoPedir} />
       )}
 
       {aviso && <div key={aviso.id} className={`aviso aviso-${aviso.tipo}`} role="status">{aviso.texto}</div>}

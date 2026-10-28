@@ -1,8 +1,0 @@
-{
-  "id": "pizzarias",
-  "nome": "Pizzarias",
-  "termo_busca": "Pizzaria",
-  "icone": "🍕",
-  "agenda": false,
-  "pedido_online": true
-}

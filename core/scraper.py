@@ -626,10 +626,10 @@ async def recoletar_lead(lead: dict, nicho: dict, log=print) -> dict:
     return db.buscar(lead["id"])
 
 
-# Também dá pra rodar sem o painel:  python -m core.scraper barbearias "Taguatinga, DF"
+# Também dá pra rodar sem o painel (precisa do .env):  python -m core.scraper barbearias "Taguatinga, DF"
 if __name__ == "__main__":
     import sys
-    from .nichos import carregar_nicho
+    from .db import carregar_nicho
 
     nicho_escolhido = carregar_nicho(sys.argv[1] if len(sys.argv) > 1 else "barbearias")
     regioes_escolhidas = sys.argv[2:] or ["Taguatinga, DF"]

@@ -5,8 +5,13 @@ CRM de prospecção. Um bot encontra negócios no Google Maps, junta as informa�
 O sistema **não gera sites**. Ele pesquisa, classifica e organiza; quem decide e faz é você.
 
 ```
-Maps ──► bot (Playwright) ──► banco (SQLite) ──► regras + IA ──► quadro (React) ──► você liga ou chama no WhatsApp
+            painel (React, no Netlify) ◄──────► banco (Supabase) ◄──────► trabalhador (seu PC)
+            celular ou PC, de qualquer lugar        leads, histórico,        busca no Maps (Playwright),
+            quadro, fichas, ligar hoje              fila de pedidos          regras + IA, backup diário
 ```
+
+- O **painel** fica no Netlify e conversa direto com o **Supabase**: o CRM (quadro, fichas, congelar, ligar hoje) funciona no celular mesmo com o PC desligado.
+- O trabalho pesado (buscar no Maps, analisar com IA, diagnóstico) vira um **pedido** numa fila. O **trabalhador** (`python trabalhador.py`), no seu PC, pega os pedidos e escreve o progresso de volta. Com o PC desligado, os pedidos esperam na fila.
 
 ## Como funciona
 
@@ -52,57 +57,91 @@ Na ficha do lead, **Pacote do cliente** mostra um documento com classificação,
 
 ## Instalação (uma vez só)
 
-Precisa de **Python 3.11 ou mais novo**, **Node.js 20 ou mais novo** e **Git**.
+O banco já está criado no Supabase (projeto **Prospecta**, região São Paulo). As tabelas estão em `supabase/0001_inicial.sql` e `supabase/0002_ajustes.sql`.
+
+Precisa de **Python 3.11 ou mais novo**, **Node.js 20 ou mais novo** (só para mexer no painel) e **Git**.
 
 ```bash
 git clone https://github.com/victormiguelgta-dev/prospecta.git
 cd prospecta
 
-# Python
 python -m venv .venv
 .venv\Scripts\activate             # no Linux/Mac: source .venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium
 
-# Painel (React)
-cd painel
-npm install
-npm run build
-cd ..
-
-# Configuração
 copy .env.example .env             # no Linux/Mac: cp .env.example .env
 ```
 
-Abra o `.env` e coloque a chave do Gemini (grátis em aistudio.google.com/apikey). Sem ela tudo funciona, mas só com as regras.
+Abra o `.env` e preencha:
 
-## Rodar
+- `SUPABASE_CHAVE`: no Supabase, **Project Settings → API Keys → Secret keys** (começa com `sb_secret_`). Ela fica **só no seu PC**: nunca no painel, no Netlify ou no GitHub.
+- `GEMINI_API_KEY`: grátis em aistudio.google.com/apikey. Sem ela tudo funciona, mas só com as regras.
+
+### Levar os leads antigos para o Supabase (uma vez)
+
+Se você já usava a versão antiga, o banco dela está em `dados/prospeccao.db`. Com o `.env` preenchido:
+
+```bash
+python migrar_para_supabase.py
+```
+
+Pode rodar de novo sem medo: quem já está no Supabase não é copiado outra vez. Depois, no painel, use **Configurações → Reanalisar todos**. Guarde o `prospeccao.db` como cópia de segurança (ele não vai para o GitHub).
+
+## Rodar o trabalhador (no PC)
 
 ```bash
 .venv\Scripts\activate
-python app.py
+python trabalhador.py
 ```
 
-Abra **http://localhost:8000**.
+Deixe a janela aberta. O painel mostra **PC ligado** enquanto ele roda. Ele também salva um **backup** de todos os leads por dia em `saida/backups/` (guarda os últimos 30).
+
+### Ligar sozinho com o PC (Linux Mint)
+
+Crie o arquivo `~/.config/systemd/user/prospecta.service` (troque o caminho da pasta):
+
+```ini
+[Unit]
+Description=Prospecta - trabalhador
+After=network-online.target
+
+[Service]
+WorkingDirectory=/home/SEU_USUARIO/prospecta
+ExecStart=/home/SEU_USUARIO/prospecta/.venv/bin/python trabalhador.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
+e rode `systemctl --user enable --now prospecta` (para ver o que ele está fazendo: `journalctl --user -u prospecta -f`).
+
+## O painel
+
+### No Netlify (para usar no celular)
+
+1. No Netlify: **Add new project → Import an existing project → GitHub →** `prospecta`. O arquivo `netlify.toml` já diz o que fazer (pasta `painel`, `npm run build`, publica `dist`).
+2. Em **Project configuration → Environment variables**, cadastre `VITE_SUPABASE_URL` e `VITE_SUPABASE_CHAVE` com os valores de `painel/.env.example` (a chave **publishable**, que é pública).
+3. Troque o nome do site por um difícil de adivinhar (ex.: `prospecta-k7q2x`). O painel não aparece no Google (`noindex`).
+
+Cada publicação gasta créditos do Netlify: junte várias alterações antes de publicar.
+
+### Sem login: o que isso quer dizer
+
+O painel **não tem senha**, por escolha. Quem descobrir o endereço do site consegue ver e mudar os leads. Para diminuir o risco: endereço difícil, `noindex`, não compartilhar o link e o backup diário no PC. Se um dia quiser senha, dá para ligar o login do Supabase (Authentication) e trocar as regras de acesso das tabelas de `anon` para `authenticated`: o resto do sistema não muda.
 
 ### Programar o painel (React)
 
-Com o `python app.py` rodando, abra outro terminal:
-
 ```bash
 cd painel
+copy .env.example .env             # no Linux/Mac: cp .env.example .env
+npm install
 npm run dev
 ```
 
-e abra o endereço que ele mostrar (normalmente http://localhost:5173). Cada alteração em `painel/src/` aparece na hora. Quando terminar, rode `npm run build` para o `python app.py` servir a versão nova.
-
-### Abrir pelo celular (VPN)
-
-1. Instale o **Tailscale** no PC e no celular e entre com a mesma conta.
-2. No `.env`, coloque em `HOST` o IP do Tailscale do PC (aparece no aplicativo, começa com 100.).
-3. Rode `python app.py` e, no celular, abra `http://<ip-do-tailscale>:8000`.
-
-O painel não tem senha. Nunca deixe a porta aberta na internet: use só pela VPN.
+e abra o endereço que ele mostrar (normalmente http://localhost:5173). Cada alteração em `painel/src/` aparece na hora. Ele usa o mesmo banco de verdade do Supabase.
 
 ## Ajustar a classificação
 
@@ -113,7 +152,7 @@ Os pesos ficam em `dados/potencial.json`:
 - `franquias`: nomes de redes que o bot descarta;
 - `palavras_queixa`: palavras que, numa avaliação ruim, indicam problema de atendimento.
 
-Os nichos ficam em `dados/nichos/` e no painel em **Configurações**. Marque se o ramo **agenda horário** e se **vende por pedido**: isso liga as oportunidades de desenvolvimento.
+Os nichos e as regiões ficam no banco e são editados no painel em **Configurações**. Marque se o ramo **agenda horário** e se **vende por pedido**: isso liga as oportunidades de desenvolvimento.
 
 Depois de mudar os pesos, use **Configurações → Reanalisar todos os leads**. Anote quem fecha e quem não fecha: depois de 20 a 30 leads, dá para ver quais sinais acertaram e ajustar os pesos.
 
@@ -125,42 +164,41 @@ Depois de mudar os pesos, use **Configurações → Reanalisar todos os leads**.
 ## Estrutura
 
 ```
-app.py                  servidor (FastAPI): API do CRM + serve o painel
+trabalhador.py          roda no PC: pega os pedidos da fila, faz backup diário
+migrar_para_supabase.py leva o banco antigo (SQLite) para o Supabase
+supabase/*.sql          tabelas do banco (leads, contatos, nichos, regiões, pedidos, trabalhador, ajustes)
 core/
+  supabase.py           cliente da API do Supabase (só com requests)
+  db.py                 funções do banco usadas pelo bot, pela análise e pela fila
   scraper.py            bot do Maps (Playwright), com os seletores no topo
   limpeza.py            limpa texto, classifica o site, acha redes sociais e WhatsApp
-  analise.py            junta tudo depois da coleta: descarte, redes na web, regras e IA
+  analise.py            junta tudo depois da coleta: descarte, redes na web, regras, IA e cores da logo
   potencial.py          nota de 0 a 100, classe e descarte (lê dados/potencial.json)
   oportunidades.py      saúde do Maps e o que vender (maps, site, desenvolvimento)
   ia.py                 Gemini: análise do lead e pesquisa de redes na web
-  pacote.py             o documento de cada cliente (Markdown e JSON)
-  mensagem.py           mensagem inicial de WhatsApp e links de ligar
-  db.py                 banco SQLite: leads e histórico de contatos
-  nichos.py             nichos e regiões
   cores.py              cores da logo
-  exportar.py           Excel e JSON
   diagnostico.py        prints do que o bot vê no Maps (para ajustar seletores)
-dados/nichos/*.json     um arquivo por nicho
 dados/potencial.json    pesos da classificação
-dados/regioes.json      lista de regiões
-painel/                 painel em React (Vite); src/ é o código, dist/ é gerado pelo build
-testes/                 testes (python -m pytest testes)
+painel/                 painel em React (Vite)
+  src/api.js            leituras e gravações no Supabase, e os pedidos para o PC
+  src/regras.js         nomes, links de WhatsApp e ligação, mensagem inicial
+  src/pacote.js         o documento de cada cliente (Markdown e JSON)
+  src/exportar.js       planilha (CSV) e JSON
+netlify.toml            como o Netlify monta e publica o painel
+testes/                 testes (python -m pytest testes), com um Supabase de mentira
 ```
 
 ## Testes
 
 ```bash
-pip install pytest httpx
+pip install pytest
 python -m pytest testes
 ```
-
-## Vindo da versão antiga
-
-O banco antigo (`dados/prospeccao.db`) é convertido sozinho na primeira vez: os status viram etapas do quadro e quem tinha sido descartado por ter site volta para análise (agora pode comprar desenvolvimento). Os leads antigos não têm os dados novos (redes, avaliações lidas, sinais): use **Reanalisar todos** e, para os melhores, **Buscar de novo no Maps** na ficha.
 
 ## Cuidados
 
 - **O Google muda o Maps.** Se algum dado parar de vir, use **Diagnóstico do bot** na ficha do lead e ajuste o seletor em `SELETORES` no topo de `core/scraper.py`. Raspar o Maps e o Instagram vai contra os termos de uso: use limites baixos por região, porque é isso que evita bloqueio.
 - **WhatsApp**: o envio é sempre com um clique seu. Disparo automático em massa é o jeito mais rápido de ter o número banido.
+- **Dados**: o banco fica no Supabase (plano grátis: 500 MB, o que dá dezenas de milhares de leads). Projeto grátis sem uso por 7 dias é pausado; o trabalhador ligado e o uso do painel evitam isso, e dá para reativar no site do Supabase.
 - **LGPD**: dados públicos de empresas, para uma abordagem comercial pontual. Quem pedir para não ser contatado vai para Arquivados e não recebe mais mensagens.
 - **Promessas**: nunca prometa "primeiro lugar no Google". Para mexer no perfil do Maps, o dono precisa te dar acesso de gerente.

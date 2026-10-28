@@ -6,3 +6,5 @@ dados/prospeccao.db
 saida/
 painel/node_modules/
 painel/dist/
+painel/.env
+dados/*.db

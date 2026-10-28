@@ -1,0 +1,14 @@
+# Netlify: publica só o painel (pasta painel). O trabalhador continua rodando no seu PC.
+# No Netlify, cadastre VITE_SUPABASE_URL e VITE_SUPABASE_CHAVE (a chave publishable).
+[build]
+  base = "painel"
+  command = "npm run build"
+  publish = "dist"
+
+# Não aparecer no Google nem em outros buscadores
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Referrer-Policy = "no-referrer"
+    X-Content-Type-Options = "nosniff"

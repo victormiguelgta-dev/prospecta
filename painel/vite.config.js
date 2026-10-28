@@ -1,13 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Em desenvolvimento (npm run dev), as chamadas para /api vão para o servidor Python na porta 8000.
-// No build (npm run build), o painel vai para painel/dist e o próprio Python serve os arquivos.
+// npm run dev: painel com recarga automática (lê o painel/.env com o endereço do Supabase).
+// npm run build: gera a pasta painel/dist, que o Netlify publica.
 export default defineConfig({
   plugins: [react()],
-  server: {
-    host: true,
-    proxy: { "/api": "http://127.0.0.1:8000" },
-  },
+  server: { host: true },
   build: { outDir: "dist", emptyOutDir: true },
 });

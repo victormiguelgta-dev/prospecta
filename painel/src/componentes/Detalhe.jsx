@@ -1,6 +1,7 @@
 // Ficha completa de um lead: contato, próximo passo, histórico, o que vender, redes, mensagem e pacote.
 import { useEffect, useState } from "react";
-import { api, dataBr, somarDias } from "../api.js";
+import { api, baixarArquivo, dataBr, horaBr, somarDias } from "../api.js";
+import { montarPacote, nomeDoArquivo, paraMarkdown } from "../pacote.js";
 import { NOMES_FORCA, NOMES_SERVICO, SeloClasse } from "./Selos.jsx";
 
 const NOMES_TIPO = { ligacao: "Ligação", whatsapp: "WhatsApp", visita: "Visita", email: "E-mail", anotacao: "Anotação" };
@@ -29,7 +30,7 @@ function Campo({ rotulo, children }) {
   );
 }
 
-export default function Detalhe({ id, estado, aoFechar, aoMudar, avisar }) {
+export default function Detalhe({ id, estado, aoFechar, aoMudar, aoPedir, avisar }) {
   const [lead, setLead] = useState(null);
   const [erro, setErro] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -64,7 +65,7 @@ export default function Detalhe({ id, estado, aoFechar, aoMudar, avisar }) {
     setOcupado(true);
     try {
       const dados = await funcao();
-      if (dados && dados.id) receber(dados);
+      if (dados && dados.nome) receber(dados);
       if (aviso) avisar(aviso);
       aoMudar();
       return dados;
@@ -82,13 +83,30 @@ export default function Detalhe({ id, estado, aoFechar, aoMudar, avisar }) {
   const linkWhats = lead.link_whatsapp ? lead.link_whatsapp.split("?")[0] + "?text=" + encodeURIComponent(mensagem) : "";
   const fora = lead.estado !== "ativo";
 
-  async function verPacote() {
+  // Trabalho pesado vira pedido na fila: quem faz é o trabalhador do PC
+  async function pedir(funcao, aviso) {
+    setOcupado(true);
     try {
-      setPacote((await api.pacote(lead.id)).texto);
+      await funcao();
+      avisar(estado.pc_ligado ? `${aviso} Acompanhe em Nova busca.`
+        : `${aviso} O PC está desligado: o pedido espera na fila até você ligar o trabalhador.`);
+      aoPedir();
     } catch (e) {
       avisar(e.message, "erro");
+    } finally {
+      setOcupado(false);
     }
   }
+
+  const verPacote = () => setPacote(paraMarkdown(montarPacote(lead)));
+  const baixarPacote = (formato) => {
+    const dados = montarPacote(lead);
+    if (formato === "json") {
+      baixarArquivo(`${nomeDoArquivo(lead)}.json`, JSON.stringify(dados, null, 2), "application/json");
+    } else {
+      baixarArquivo(`${nomeDoArquivo(lead)}.md`, paraMarkdown(dados), "text/markdown;charset=utf-8");
+    }
+  };
 
   async function copiar(texto, aviso) {
     try {
@@ -249,7 +267,7 @@ export default function Detalhe({ id, estado, aoFechar, aoMudar, avisar }) {
         <ol className="historico">
           {lead.contatos.map((c) => (
             <li key={c.id}>
-              <time>{dataBr(c.data)} {c.data.slice(11, 16)}</time>
+              <time>{dataBr(c.data)} {horaBr(c.data)}</time>
               <span className="tipo">{NOMES_TIPO[c.tipo] || c.tipo}</span>
               <span>{c.anotacao}</span>
             </li>
@@ -310,8 +328,8 @@ export default function Detalhe({ id, estado, aoFechar, aoMudar, avisar }) {
       <Secao titulo="Pacote do cliente" extra={
         <div className="linha">
           <button className="btn" onClick={verPacote}>Ver</button>
-          <a className="btn" href={api.linkPacote(lead.id, "md")}>Baixar .md</a>
-          <a className="btn" href={api.linkPacote(lead.id, "json")}>Baixar .json</a>
+          <button className="btn" onClick={() => baixarPacote("md")}>Baixar .md</button>
+          <button className="btn" onClick={() => baixarPacote("json")}>Baixar .json</button>
         </div>
       }>
         <p className="ajuda">Tudo sobre o cliente num documento: para a conversa ou para mandar à IA fazer o site.</p>
@@ -325,13 +343,13 @@ export default function Detalhe({ id, estado, aoFechar, aoMudar, avisar }) {
 
       <Secao titulo="Ferramentas">
         <div className="linha">
-          <button className="btn" disabled={ocupado} onClick={() => acao(() => api.analisar(lead.id), "Análise refeita")}>
+          <button className="btn" disabled={ocupado} onClick={() => pedir(() => api.analisar(lead.id), "Pedido de análise enviado.")}>
             Analisar de novo
           </button>
-          <button className="btn" disabled={ocupado} onClick={() => acao(() => api.recoletar(lead.id), "Buscando no Maps… acompanhe em Nova busca")}>
+          <button className="btn" disabled={ocupado} onClick={() => pedir(() => api.recoletar(lead.id), "Pedido para buscar de novo no Maps enviado.")}>
             Buscar de novo no Maps
           </button>
-          <button className="btn" disabled={ocupado} onClick={() => acao(() => api.diagnostico(lead.id), "Diagnóstico iniciado… acompanhe em Nova busca")}>
+          <button className="btn" disabled={ocupado} onClick={() => pedir(() => api.diagnostico(lead.id), "Pedido de diagnóstico enviado.")}>
             Diagnóstico do bot
           </button>
           <button className="btn btn-perigo" disabled={ocupado} onClick={async () => {
@@ -340,7 +358,9 @@ export default function Detalhe({ id, estado, aoFechar, aoMudar, avisar }) {
             aoFechar();
           }}>Excluir</button>
         </div>
-        {lead.analisado_em && <p className="ajuda">Analisado em {dataBr(lead.analisado_em)} {lead.analisado_em.slice(11, 16)}</p>}
+        {lead.analisado_em && <p className="ajuda">Analisado em {dataBr(lead.analisado_em)} {horaBr(lead.analisado_em)}</p>}
+        <p className="ajuda">Analisar, buscar de novo e o diagnóstico rodam no seu PC (o trabalhador precisa estar ligado).
+          O arquivo do diagnóstico fica salvo no PC.</p>
       </Secao>
     </Gaveta>
   );

@@ -9,6 +9,7 @@ import colorsys
 import io
 import statistics
 
+import requests
 from PIL import Image
 
 
@@ -141,3 +142,20 @@ def montar_paleta(cor_base: str, tema: str = "claro") -> dict:
         "profundo": _de_hls(h, 0.16, min(s, 0.55)),  # faixas de cor sólida
         "tema": tema,
     }
+
+
+def cores_da_logo(url: str) -> dict:
+    """Baixa a logo (sem salvar), pega a cor principal e sugere uma paleta. {} se não der."""
+    if not url:
+        return {}
+    try:
+        resposta = requests.get(url, timeout=10)
+        resposta.raise_for_status()
+        base = cor_da_imagem(io.BytesIO(resposta.content))
+    except Exception:
+        return {}
+    if not base:
+        return {}
+    paleta = montar_paleta(base)
+    return {"principal": base, "destaque": paleta["destaque"], "fundo": paleta["fundo"],
+            "superficie": paleta["superficie"], "texto": paleta["texto"]}

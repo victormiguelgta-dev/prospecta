@@ -282,6 +282,34 @@ code { font-family: var(--mono); font-size: 0.9em; background: var(--superficie-
   max-height: 420px; overflow: auto; white-space: pre-wrap; margin: 10px 0;
 }
 .log h2 { font-size: 15px; }
+.log h3 { font-size: 14px; margin: 0; }
+.log > .linha { margin-top: 14px; justify-content: space-between; align-items: center; }
+
+/* PC ligado/desligado e fila de pedidos */
+.bolinha { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--pouco); flex: 0 0 auto; }
+.bolinha.ligado, .status-pc.ligado .bolinha { background: #2fbf7f; }
+.bolinha.desligado, .status-pc.desligado .bolinha { background: #d97706; }
+.menu-rodape { display: flex; align-items: center; gap: 8px; }
+.status-pc {
+  display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; margin-bottom: 14px;
+  border-radius: var(--raio); border: 1px solid var(--borda); background: var(--superficie); font-size: 14px;
+}
+.status-pc .bolinha { margin-top: 5px; }
+.status-pc.desligado { background: var(--talvez-fundo); border-color: transparent; }
+.pedidos { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 4px; }
+.pedido {
+  width: 100%; display: grid; grid-template-columns: 92px 110px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  text-align: left; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--borda); background: var(--superficie);
+  color: var(--texto); font: inherit; font-size: 13.5px; cursor: pointer;
+}
+.pedido.ativo { border-color: var(--acento); box-shadow: inset 3px 0 0 var(--acento); }
+.pedido span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pedido time { color: var(--texto-suave); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.status { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; justify-self: start;
+  background: var(--pouco-fundo); color: var(--pouco); }
+.status-rodando { background: var(--potencial-fundo); color: var(--potencial); }
+.status-pendente { background: var(--talvez-fundo); color: var(--talvez); }
+.status-erro { background: var(--perigo-fundo); color: var(--perigo); }
 
 /* ---------- Configurações ---------- */
 .config-grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
@@ -318,6 +346,8 @@ code { font-family: var(--mono); font-size: 0.9em; background: var(--superficie-
   .gaveta { padding-left: 14px; padding-right: max(14px, env(safe-area-inset-right, 0px)); }
   .campo { grid-template-columns: 1fr; gap: 0; }
   .form-busca, .config-grade { grid-template-columns: 1fr; }
+  .pedido { grid-template-columns: auto minmax(0, 1fr); }
+  .pedido > span:not(.status), .pedido time { grid-column: 1 / -1; }
   .etapa-select { margin-left: 0; }
 }
 @media (prefers-reduced-motion: reduce) {

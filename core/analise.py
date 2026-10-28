@@ -9,10 +9,10 @@ Ordem:
      O que a IA sugerir entra nas oportunidades e a nota é recalculada.
 
 Sem chave do Gemini, os passos 2 e 4 são pulados e tudo funciona só com as regras.
+No fim, as cores da logo são calculadas uma vez (para o pacote do site).
 """
-from datetime import datetime
-
-from . import db, ia, nichos
+from . import db, ia
+from .cores import cores_da_logo
 from .limpeza import juntar_redes
 from .potencial import calcular, carregar_pesos, motivo_descarte
 
@@ -50,7 +50,7 @@ def analisar(lead_id: str, usar_ia: bool = True, log=print) -> dict:
     lead = db.buscar(lead_id)
     if not lead:
         raise ValueError("Lead não encontrado")
-    nicho = nichos.carregar_nicho(lead.get("nicho") or "") or {}
+    nicho = db.carregar_nicho(lead.get("nicho") or "") or {}
     pesos = carregar_pesos()
     campos = {}
 
@@ -83,7 +83,13 @@ def analisar(lead_id: str, usar_ia: bool = True, log=print) -> dict:
         except Exception as erro:
             log(f"    IA não analisou ({str(erro)[:100]}): ficam só as regras")
 
+    # Cores da logo, para o pacote do site (uma vez só por logo)
+    if lead.get("logo_url") and not lead.get("cores"):
+        cores = cores_da_logo(lead["logo_url"])
+        if cores:
+            campos["cores"] = cores
+
     campos.update(resultado)
-    campos["analisado_em"] = datetime.now().isoformat(timespec="seconds")
+    campos["analisado_em"] = db.agora()
     db.atualizar(lead_id, campos)
     return db.buscar(lead_id)

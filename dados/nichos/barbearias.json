@@ -1,8 +1,0 @@
-{
-  "id": "barbearias",
-  "nome": "Barbearias",
-  "termo_busca": "Barbearia",
-  "icone": "✂",
-  "agenda": true,
-  "pedido_online": false
-}
