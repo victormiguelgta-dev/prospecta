@@ -33,6 +33,7 @@ export default function App() {
   const [aberto, setAberto] = useState(null);
   const [aviso, setAviso] = useState(null);
   const [pedidos, setPedidos] = useState([]);
+  const [menuAberto, setMenuAberto] = useState(false);   // menu do celular (botão ⋯)
 
   const avisar = useCallback((texto, tipo = "ok") => {
     setAviso({ texto, tipo, id: Date.now() });
@@ -178,10 +179,19 @@ export default function App() {
 
   return (
     <div className="app">
-      <nav className="menu" aria-label="Seções">
-        <div className="marca">Prospecta</div>
+      <nav className={`menu${menuAberto ? " aberto" : ""}`} aria-label="Seções">
+        <div className="menu-topo">
+          <div className="marca">Prospecta</div>
+          <span className="menu-atual">{ABAS.find((a) => a.id === aba)?.nome}</span>
+          <button className="menu-botao" aria-label={menuAberto ? "Fechar menu" : "Abrir menu"}
+                  aria-expanded={menuAberto} aria-controls="menu-itens" onClick={() => setMenuAberto(!menuAberto)}>
+            {menuAberto ? "×" : "⋯"}
+          </button>
+        </div>
+        <div className="menu-itens" id="menu-itens">
         {ABAS.map((a) => (
-          <button key={a.id} className={`menu-item${aba === a.id ? " ativo" : ""}`} onClick={() => setAba(a.id)}>
+          <button key={a.id} className={`menu-item${aba === a.id ? " ativo" : ""}`}
+                  onClick={() => { setAba(a.id); setMenuAberto(false); }}>
             {a.nome}
             {contagem[a.id] > 0 && <span className={`contador${a.id === "ligar" ? " alerta" : ""}`}>{contagem[a.id]}</span>}
             {a.id === "busca" && pedidos.some((p) => p.status === "rodando") && <span className="pulso" aria-label="rodando" />}
@@ -190,6 +200,7 @@ export default function App() {
         <div className="menu-rodape">
           <span className={`bolinha ${estado.pc_ligado ? "ligado" : "desligado"}`} aria-hidden="true" />
           PC {estado.pc_ligado ? "ligado" : "desligado"}
+        </div>
         </div>
       </nav>
 
